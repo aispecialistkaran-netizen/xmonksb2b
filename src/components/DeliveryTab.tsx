@@ -75,6 +75,7 @@ import {
   createDefaultDeliveryMilestones,
   createDefaultPaymentTerms,
 } from "@/lib/deliveryService";
+import { ProjectProgressBar } from "@/components/ProjectProgressBar";
 import confetti from "canvas-confetti";
 
 interface DeliveryTabProps {
@@ -97,11 +98,15 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [projectSubTab, setProjectSubTab] = useState<"tenure" | "pipeline_data">("tenure");
 
+  // Contract Sub-View Switcher (when tenure is contract)
+  const [contractSubView, setContractSubView] = useState<"all" | "milestones" | "terms">("all");
+
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTenureFilter, setSelectedTenureFilter] = useState<string>("all");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("all");
   const [selectedOwnerFilter, setSelectedOwnerFilter] = useState<string>("all");
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("all");
 
   // Executive Header Analytics Controls
   const [headerAnalyticsTab, setHeaderAnalyticsTab] = useState<
@@ -129,7 +134,15 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       (r.deliveryMilestones || []).forEach((m) => {
         if (m.paymentStatus === "received") received += m.amount || 0;
       });
+    } else if (r.tenureType === "payment_terms") {
+      (r.paymentTerms || []).forEach((t) => {
+        if (t.paymentStatus === "received") received += t.amount || 0;
+      });
     } else {
+      // Contract: Combination of Delivery Milestones and Payment Terms
+      (r.deliveryMilestones || []).forEach((m) => {
+        if (m.paymentStatus === "received") received += m.amount || 0;
+      });
       (r.paymentTerms || []).forEach((t) => {
         if (t.paymentStatus === "received") received += t.amount || 0;
       });
@@ -305,91 +318,9 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     };
   }, [accessibleDeliveryRecords]);
 
-  // Aggregated Lead Owner Performance Matrix (Tabular Data)
-  const ownerPerformanceList = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        owner: string;
-        accountsCount: number;
-        notStartedCount: number;
-        inProgressCount: number;
-        deliveredCount: number;
-        totalMoney: number;
-        receivedMoney: number;
-        remainingMoney: number;
-        deliveryTenureCount: number;
-        paymentTermsTenureCount: number;
-      }
-    >();
-
-    accessibleDeliveryRecords.forEach((r) => {
-      const rowMatchingLead =
-        allLeads.find((l) => l.id === r.leadId) ||
-        leads.find((l) => l.id === r.leadId) ||
-        allLeads.find(
-          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
-        ) ||
-        leads.find(
-          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
-        );
-
-      const ownerName = r.clientPartner || rowMatchingLead?.owner || "Unassigned";
-
-      if (!map.has(ownerName)) {
-        map.set(ownerName, {
-          owner: ownerName,
-          accountsCount: 0,
-          notStartedCount: 0,
-          inProgressCount: 0,
-          deliveredCount: 0,
-          totalMoney: 0,
-          receivedMoney: 0,
-          remainingMoney: 0,
-          deliveryTenureCount: 0,
-          paymentTermsTenureCount: 0,
-        });
-      }
-
-      const item = map.get(ownerName)!;
-      item.accountsCount += 1;
-      if (r.deliveryStatus === "delivered") item.deliveredCount += 1;
-      else if (r.deliveryStatus === "in_progress") item.inProgressCount += 1;
-      else item.notStartedCount += 1;
-
-      if (r.tenureType === "delivery") item.deliveryTenureCount += 1;
-      else item.paymentTermsTenureCount += 1;
-
-      const fin = getRecordFinancials(r);
-      item.totalMoney += fin.total;
-      item.receivedMoney += fin.received;
-      item.remainingMoney += fin.remaining;
-    });
-
-    return Array.from(map.values())
-      .map((item) => ({
-        ...item,
-        realizationRate: item.totalMoney > 0 ? (item.receivedMoney / item.totalMoney) * 100 : 0,
-        avgDealSize: item.accountsCount > 0 ? item.totalMoney / item.accountsCount : 0,
-      }))
-      .sort((a, b) => b.totalMoney - a.totalMoney);
-  }, [accessibleDeliveryRecords, allLeads, leads]);
-
-  // Aggregated Month-Wise Revenue & Inflow
-  const monthWiseRevenueList = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        monthKey: string;
-        monthSortKey: string;
-        accountsCount: number;
-        totalMoney: number;
-        receivedMoney: number;
-        remainingMoney: number;
-      }
-    >();
-
-    accessibleDeliveryRecords.forEach((r) => {
+  // Helper to extract month representation for any delivery record
+  const getRecordMonthInfo = useCallback(
+    (r: DeliveryRecord) => {
       const rowMatchingLead =
         allLeads.find((l) => l.id === r.leadId) ||
         leads.find((l) => l.id === r.leadId) ||
@@ -414,6 +345,28 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       const monthSortKey = comps.isValid
         ? `${comps.year}-${String(comps.monthNum).padStart(2, "0")}`
         : "9999-99";
+
+      return { monthKey, monthSortKey, rawDate };
+    },
+    [allLeads, leads]
+  );
+
+  // Aggregated Month-Wise Revenue & Inflow (Across all accessible records)
+  const monthWiseRevenueList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        monthKey: string;
+        monthSortKey: string;
+        accountsCount: number;
+        totalMoney: number;
+        receivedMoney: number;
+        remainingMoney: number;
+      }
+    >();
+
+    accessibleDeliveryRecords.forEach((r) => {
+      const { monthKey, monthSortKey } = getRecordMonthInfo(r);
 
       if (!map.has(monthKey)) {
         map.set(monthKey, {
@@ -440,9 +393,111 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         realizationRate: item.totalMoney > 0 ? (item.receivedMoney / item.totalMoney) * 100 : 0,
       }))
       .sort((a, b) => a.monthSortKey.localeCompare(b.monthSortKey));
-  }, [accessibleDeliveryRecords, allLeads, leads]);
+  }, [accessibleDeliveryRecords, getRecordMonthInfo]);
 
-  // Tenure Model Comparison Insights
+  // Accessible records scoped by selectedMonthFilter (used for Owner Performance Matrix & Tenure Insights)
+  const recordsForAnalytics = useMemo(() => {
+    if (selectedMonthFilter === "all") return accessibleDeliveryRecords;
+    return accessibleDeliveryRecords.filter((r) => {
+      const { monthKey } = getRecordMonthInfo(r);
+      return monthKey.toLowerCase() === selectedMonthFilter.toLowerCase();
+    });
+  }, [accessibleDeliveryRecords, selectedMonthFilter, getRecordMonthInfo]);
+
+  // Aggregated Lead Owner Performance Matrix (Tabular Data, respects active month filter)
+  const ownerPerformanceList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        owner: string;
+        accountsCount: number;
+        notStartedCount: number;
+        inProgressCount: number;
+        deliveredCount: number;
+        totalMoney: number;
+        receivedMoney: number;
+        remainingMoney: number;
+        deliveryTenureCount: number;
+        paymentTermsTenureCount: number;
+        contractTenureCount: number;
+      }
+    >();
+
+    recordsForAnalytics.forEach((r) => {
+      const rowMatchingLead =
+        allLeads.find((l) => l.id === r.leadId) ||
+        leads.find((l) => l.id === r.leadId) ||
+        allLeads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        ) ||
+        leads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        );
+
+      const ownerName = r.clientPartner || rowMatchingLead?.owner || "Unassigned";
+
+      if (!map.has(ownerName)) {
+        map.set(ownerName, {
+          owner: ownerName,
+          accountsCount: 0,
+          notStartedCount: 0,
+          inProgressCount: 0,
+          deliveredCount: 0,
+          totalMoney: 0,
+          receivedMoney: 0,
+          remainingMoney: 0,
+          deliveryTenureCount: 0,
+          paymentTermsTenureCount: 0,
+          contractTenureCount: 0,
+        });
+      }
+
+      const item = map.get(ownerName)!;
+      item.accountsCount += 1;
+      if (r.deliveryStatus === "delivered") item.deliveredCount += 1;
+      else if (r.deliveryStatus === "in_progress") item.inProgressCount += 1;
+      else item.notStartedCount += 1;
+
+      if (r.tenureType === "delivery") item.deliveryTenureCount += 1;
+      else if (r.tenureType === "contract") item.contractTenureCount += 1;
+      else item.paymentTermsTenureCount += 1;
+
+      const fin = getRecordFinancials(r);
+      item.totalMoney += fin.total;
+      item.receivedMoney += fin.received;
+      item.remainingMoney += fin.remaining;
+    });
+
+    return Array.from(map.values())
+      .map((item) => ({
+        ...item,
+        realizationRate: item.totalMoney > 0 ? (item.receivedMoney / item.totalMoney) * 100 : 0,
+        avgDealSize: item.accountsCount > 0 ? item.totalMoney / item.accountsCount : 0,
+      }))
+      .sort((a, b) => b.totalMoney - a.totalMoney);
+  }, [recordsForAnalytics, allLeads, leads]);
+
+  // Aggregated totals for the current owner matrix view (matching active month filter)
+  const ownerPerformanceTotals = useMemo(() => {
+    let accounts = 0;
+    let totalMoney = 0;
+    let receivedMoney = 0;
+    let remainingMoney = 0;
+
+    ownerPerformanceList.forEach((item) => {
+      accounts += item.accountsCount;
+      totalMoney += item.totalMoney;
+      receivedMoney += item.receivedMoney;
+      remainingMoney += item.remainingMoney;
+    });
+
+    const realizationRate = totalMoney > 0 ? (receivedMoney / totalMoney) * 100 : 0;
+    const avgDealSize = accounts > 0 ? totalMoney / accounts : 0;
+
+    return { accounts, totalMoney, receivedMoney, remainingMoney, realizationRate, avgDealSize };
+  }, [ownerPerformanceList]);
+
+  // Tenure Model Comparison Insights (scoped to month filter if active)
   const tenureModelInsights = useMemo(() => {
     let deliveryModelAccounts = 0;
     let deliveryModelMoney = 0;
@@ -452,12 +507,20 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     let paymentTermsMoney = 0;
     let paymentTermsReceived = 0;
 
-    accessibleDeliveryRecords.forEach((r) => {
+    let contractAccounts = 0;
+    let contractMoney = 0;
+    let contractReceived = 0;
+
+    recordsForAnalytics.forEach((r) => {
       const fin = getRecordFinancials(r);
       if (r.tenureType === "delivery") {
         deliveryModelAccounts += 1;
         deliveryModelMoney += fin.total;
         deliveryModelReceived += fin.received;
+      } else if (r.tenureType === "contract") {
+        contractAccounts += 1;
+        contractMoney += fin.total;
+        contractReceived += fin.received;
       } else {
         paymentTermsAccounts += 1;
         paymentTermsMoney += fin.total;
@@ -480,8 +543,15 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         remainingMoney: Math.max(0, paymentTermsMoney - paymentTermsReceived),
         rate: paymentTermsMoney > 0 ? (paymentTermsReceived / paymentTermsMoney) * 100 : 0,
       },
+      contract: {
+        accounts: contractAccounts,
+        totalMoney: contractMoney,
+        receivedMoney: contractReceived,
+        remainingMoney: Math.max(0, contractMoney - contractReceived),
+        rate: contractMoney > 0 ? (contractReceived / contractMoney) * 100 : 0,
+      },
     };
-  }, [accessibleDeliveryRecords]);
+  }, [recordsForAnalytics]);
 
   // Filtered records
   const filteredRecords = useMemo(() => {
@@ -517,9 +587,25 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         effectiveOwner.toLowerCase() === selectedOwnerFilter.toLowerCase() ||
         (r.clientPartner && r.clientPartner.toLowerCase() === selectedOwnerFilter.toLowerCase());
 
-      return matchesSearch && matchesTenure && matchesStatus && matchesOwner;
+      const { monthKey: recordMonth } = getRecordMonthInfo(r);
+      const matchesMonth =
+        selectedMonthFilter === "all" ||
+        recordMonth.toLowerCase() === selectedMonthFilter.toLowerCase();
+
+      return matchesSearch && matchesTenure && matchesStatus && matchesOwner && matchesMonth;
     });
-  }, [accessibleDeliveryRecords, searchQuery, selectedTenureFilter, selectedStatusFilter, selectedOwnerFilter, allLeads, leads, isAdmin]);
+  }, [
+    accessibleDeliveryRecords,
+    searchQuery,
+    selectedTenureFilter,
+    selectedStatusFilter,
+    selectedOwnerFilter,
+    selectedMonthFilter,
+    getRecordMonthInfo,
+    allLeads,
+    leads,
+    isAdmin,
+  ]);
 
   // Handlers
   const handleSelectRecord = (id: string) => {
@@ -788,7 +874,26 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           completedMilestonesCount++;
         }
       });
+    } else if (selectedRecord.tenureType === "payment_terms") {
+      selectedRecord.paymentTerms.forEach((t) => {
+        totalAllocatedPercent += t.paymentPercent || 0;
+        totalAllocatedAmount += t.amount || 0;
+        if (t.paymentStatus === "received") {
+          totalReceivedAmount += t.amount || 0;
+        }
+      });
     } else {
+      // Contract: Combination of Delivery Milestones and Payment Terms
+      selectedRecord.deliveryMilestones.forEach((m) => {
+        totalAllocatedPercent += m.paymentPercent || 0;
+        totalAllocatedAmount += m.amount || 0;
+        if (m.paymentStatus === "received") {
+          totalReceivedAmount += m.amount || 0;
+        }
+        if (m.milestoneStatus === "completed") {
+          completedMilestonesCount++;
+        }
+      });
       selectedRecord.paymentTerms.forEach((t) => {
         totalAllocatedPercent += t.paymentPercent || 0;
         totalAllocatedAmount += t.amount || 0;
@@ -946,7 +1051,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 <BarChart3 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center flex-wrap gap-1.5">
                   <span>
                     {isAdmin
                       ? "Executive Revenue Insights & Portfolio Matrix"
@@ -954,7 +1059,20 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   </span>
                   {isAdmin && selectedOwnerFilter !== "all" && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                      Filtered: {selectedOwnerFilter}
+                      Owner: {selectedOwnerFilter}
+                    </span>
+                  )}
+                  {selectedMonthFilter !== "all" && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 inline-flex items-center space-x-1">
+                      <span>Month: {selectedMonthFilter}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMonthFilter("all")}
+                        className="hover:text-rose-600 transition cursor-pointer"
+                        title="Clear month filter"
+                      >
+                        <X className="w-2.5 h-2.5 ml-0.5" />
+                      </button>
                     </span>
                   )}
                 </h3>
@@ -967,6 +1085,43 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             </div>
 
             <div className="flex items-center flex-wrap gap-2">
+              {/* Admin Month Filter Dropdown in Executive Analytics Header */}
+              {isAdmin && (
+                <div
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition ${
+                    selectedMonthFilter !== "all"
+                      ? "bg-indigo-50 dark:bg-indigo-950/70 border-indigo-400 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20 shadow-xs"
+                      : "bg-slate-100 dark:bg-slate-800/80 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Month:</span>
+                  <select
+                    value={selectedMonthFilter}
+                    onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                    className="bg-transparent font-black outline-none cursor-pointer text-xs"
+                    title="Filter revenue analytics & projects by Month"
+                  >
+                    <option value="all">All Months ({monthWiseRevenueList.length})</option>
+                    {monthWiseRevenueList.map((m) => (
+                      <option key={m.monthKey} value={m.monthKey} className="text-slate-900 bg-white dark:bg-slate-900">
+                        {m.monthKey} ({m.accountsCount} {m.accountsCount === 1 ? "project" : "projects"})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedMonthFilter !== "all" && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMonthFilter("all")}
+                      className="p-0.5 text-slate-400 hover:text-rose-500 rounded transition cursor-pointer"
+                      title="Clear month filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Tab Selector Buttons */}
               <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700 text-xs font-bold">
                 <button
@@ -1046,6 +1201,25 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               {/* TAB 1: LEAD OWNER PERFORMANCE MATRIX (TABULAR DATA) */}
               {headerAnalyticsTab === "owner_matrix" && (
                 <div className="space-y-3">
+                  {selectedMonthFilter !== "all" && (
+                    <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 text-xs shadow-2xs">
+                      <div className="flex items-center space-x-2 text-indigo-800 dark:text-indigo-300">
+                        <Calendar className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span>
+                          Showing lead owner breakdown for <strong>{selectedMonthFilter}</strong> ({recordsForAnalytics.length} accounts, {formatINR(ownerPerformanceTotals.totalMoney)} contracted)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMonthFilter("all")}
+                        className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center space-x-1 cursor-pointer"
+                      >
+                        <span>Show All Months</span>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
                   <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                     <table className="w-full text-left text-xs">
                       <thead>
@@ -1065,7 +1239,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         {ownerPerformanceList.length === 0 ? (
                           <tr>
                             <td colSpan={9} className="py-8 text-center text-slate-400">
-                              No delivery accounts assigned to lead owners yet.
+                              No delivery accounts found for {selectedMonthFilter !== "all" ? selectedMonthFilter : "assigned lead owners"}.
+                              {selectedMonthFilter !== "all" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedMonthFilter("all")}
+                                  className="ml-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                >
+                                  View all months
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ) : (
@@ -1170,6 +1353,11 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                         {item.deliveryTenureCount} Milestone
                                       </span>
                                     )}
+                                    {item.contractTenureCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
+                                        {item.contractTenureCount} Contract
+                                      </span>
+                                    )}
                                     {item.paymentTermsTenureCount > 0 && (
                                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/60">
                                         {item.paymentTermsTenureCount} Schedule
@@ -1218,40 +1406,50 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                           <tr className="border-t-2 border-slate-200 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white">
                             <td className="py-3 px-4 text-xs">
                               TOTAL ({ownerPerformanceList.length} Owners)
-                            </td>
-                            <td className="py-3 px-4 text-xs">
-                              {metrics.totalProjects} Accounts
-                            </td>
-                            <td className="py-3 px-4 text-xs whitespace-nowrap">
-                              {formatINR(metrics.totalPortfolio)}
-                            </td>
-                            <td className="py-3 px-4 text-xs text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                              {formatINR(metrics.totalReceived)}
-                            </td>
-                            <td className="py-3 px-4 text-xs text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                              {formatINR(metrics.pendingPayment)}
-                            </td>
-                            <td className="py-3 px-4 text-xs">
-                              {metrics.collectionRate.toFixed(1)}% Realized
-                            </td>
-                            <td className="py-3 px-4 text-xs whitespace-nowrap">
-                              {formatINR(
-                                metrics.totalProjects > 0
-                                  ? metrics.totalPortfolio / metrics.totalProjects
-                                  : 0
+                              {selectedMonthFilter !== "all" && (
+                                <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                                  {selectedMonthFilter}
+                                </span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-[10px] text-slate-500 dark:text-slate-400">
-                              Team Portfolio
+                            <td className="py-3 px-4 text-xs">
+                              {ownerPerformanceTotals.accounts} Accounts
                             </td>
-                            <td className="py-3 px-4 text-right">
+                            <td className="py-3 px-4 text-xs whitespace-nowrap">
+                              {formatINR(ownerPerformanceTotals.totalMoney)}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                              {formatINR(ownerPerformanceTotals.receivedMoney)}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                              {formatINR(ownerPerformanceTotals.remainingMoney)}
+                            </td>
+                            <td className="py-3 px-4 text-xs">
+                              {ownerPerformanceTotals.realizationRate.toFixed(1)}% Realized
+                            </td>
+                            <td className="py-3 px-4 text-xs whitespace-nowrap">
+                              {formatINR(ownerPerformanceTotals.avgDealSize)}
+                            </td>
+                            <td className="py-3 px-4 text-[10px] text-slate-500 dark:text-slate-400">
+                              {selectedMonthFilter !== "all" ? selectedMonthFilter : "Team Portfolio"}
+                            </td>
+                            <td className="py-3 px-4 text-right space-x-2">
                               {selectedOwnerFilter !== "all" && (
                                 <button
                                   type="button"
                                   onClick={() => setSelectedOwnerFilter("all")}
-                                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
+                                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-bold cursor-pointer"
                                 >
-                                  Reset Filter
+                                  Reset Owner
+                                </button>
+                              )}
+                              {selectedMonthFilter !== "all" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedMonthFilter("all")}
+                                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-bold cursor-pointer"
+                                >
+                                  Reset Month
                                 </button>
                               )}
                             </td>
@@ -1272,56 +1470,96 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         No monthly revenue data available.
                       </div>
                     ) : (
-                      monthWiseRevenueList.map((m) => (
-                        <div
-                          key={m.monthKey}
-                          className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-sm space-y-3"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <Calendar className="w-4 h-4 text-indigo-500" />
-                              <h5 className="font-black text-slate-900 dark:text-white text-sm">
-                                {m.monthKey}
-                              </h5>
-                            </div>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                              {m.accountsCount} project{m.accountsCount !== 1 ? "s" : ""}
-                            </span>
-                          </div>
+                      monthWiseRevenueList.map((m) => {
+                        const isCurrentMonthFilter =
+                          selectedMonthFilter.toLowerCase() === m.monthKey.toLowerCase();
 
-                          <div className="space-y-1.5 text-xs">
-                            <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
-                              <span>Total Contracted:</span>
-                              <strong className="text-slate-900 dark:text-white">
-                                {formatINR(m.totalMoney)}
-                              </strong>
+                        return (
+                          <div
+                            key={m.monthKey}
+                            className={`p-4 rounded-xl border transition shadow-sm space-y-3 ${
+                              isCurrentMonthFilter
+                                ? "border-indigo-500 bg-indigo-50/30 dark:bg-indigo-950/30 ring-2 ring-indigo-500/20"
+                                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 hover:border-slate-300 dark:hover:border-slate-700"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-2">
+                                <Calendar className="w-4 h-4 text-indigo-500" />
+                                <h5 className="font-black text-slate-900 dark:text-white text-sm">
+                                  {m.monthKey}
+                                </h5>
+                              </div>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                {m.accountsCount} project{m.accountsCount !== 1 ? "s" : ""}
+                              </span>
                             </div>
-                            <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                              <span>Received Inflow:</span>
-                              <strong>{formatINR(m.receivedMoney)}</strong>
-                            </div>
-                            <div className="flex justify-between items-center text-amber-600 dark:text-amber-400">
-                              <span>Remaining Receivable:</span>
-                              <strong>{formatINR(m.remainingMoney)}</strong>
-                            </div>
-                          </div>
 
-                          <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
-                            <div className="flex justify-between items-center text-[10px]">
-                              <span className="text-slate-400">Realization Rate</span>
-                              <strong className="text-slate-700 dark:text-slate-300">
-                                {m.realizationRate.toFixed(0)}%
-                              </strong>
+                            <div className="space-y-1.5 text-xs">
+                              <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                                <span>Total Contracted:</span>
+                                <strong className="text-slate-900 dark:text-white">
+                                  {formatINR(m.totalMoney)}
+                                </strong>
+                              </div>
+                              <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                                <span>Received Inflow:</span>
+                                <strong>{formatINR(m.receivedMoney)}</strong>
+                              </div>
+                              <div className="flex justify-between items-center text-amber-600 dark:text-amber-400">
+                                <span>Remaining Receivable:</span>
+                                <strong>{formatINR(m.remainingMoney)}</strong>
+                              </div>
                             </div>
-                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400"
-                                style={{ width: `${Math.min(100, m.realizationRate)}%` }}
-                              />
+
+                            <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="text-slate-400">Realization Rate</span>
+                                <strong className="text-slate-700 dark:text-slate-300">
+                                  {m.realizationRate.toFixed(0)}%
+                                </strong>
+                              </div>
+                              <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400"
+                                  style={{ width: `${Math.min(100, m.realizationRate)}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Action Button: Filter Table by this Month */}
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                              {isCurrentMonthFilter ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedMonthFilter("all")}
+                                  className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                                  title="Active month filter. Click to show all months."
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Active Month Filter</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedMonthFilter(m.monthKey);
+                                    const tableElement = document.getElementById("delivery-projects-table");
+                                    if (tableElement) {
+                                      tableElement.scrollIntoView({ behavior: "smooth" });
+                                    }
+                                  }}
+                                  className="w-full py-1.5 px-3 rounded-lg bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950 text-slate-700 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400 font-bold text-xs transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                                  title={`Filter table and matrix for ${m.monthKey}`}
+                                >
+                                  <Filter className="w-3.5 h-3.5" />
+                                  <span>Filter by this Month</span>
+                                </button>
+                              )}
                             </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -1329,14 +1567,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
               {/* TAB 3: PAYMENT INSIGHTS & TENURE MODELS */}
               {headerAnalyticsTab === "payment_insights" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Delivery Milestone Model Card */}
                   <div className="p-4 rounded-xl border border-indigo-200/80 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <Truck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                         <h4 className="font-black text-slate-900 dark:text-white text-sm">
-                          Delivery (% Completion Milestone Model)
+                          Delivery (Milestones)
                         </h4>
                       </div>
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300">
@@ -1374,7 +1612,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       <div className="flex items-center space-x-2">
                         <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                         <h4 className="font-black text-slate-900 dark:text-white text-sm">
-                          Payment Terms (Schedule & Advance Model)
+                          Payment Terms (Schedule)
                         </h4>
                       </div>
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300">
@@ -1401,6 +1639,44 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <span className="text-[10px] text-amber-600 block">Pending Balance</span>
                         <strong className="text-amber-600 dark:text-amber-400">
                           {formatINR(tenureModelInsights.paymentTerms.remainingMoney)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contract Hybrid Model Card */}
+                  <div className="p-4 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <FileText className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <h4 className="font-black text-slate-900 dark:text-white text-sm">
+                          Contract (Hybrid Model)
+                        </h4>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                        {tenureModelInsights.contract.accounts} projects
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Master contract combining advance mobilization deposits with progress-linked delivery milestone payouts.
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-emerald-100 dark:border-emerald-900/50 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Total Portfolio</span>
+                        <strong className="text-slate-900 dark:text-white">
+                          {formatINR(tenureModelInsights.contract.totalMoney)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-emerald-600 block">Realized Inflow</span>
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          {formatINR(tenureModelInsights.contract.receivedMoney)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-amber-600 block">Pending Balance</span>
+                        <strong className="text-amber-600 dark:text-amber-400">
+                          {formatINR(tenureModelInsights.contract.remainingMoney)}
                         </strong>
                       </div>
                     </div>
@@ -1513,24 +1789,19 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             </div>
           </div>
 
-          {/* Quick Progress Summary Bar */}
-          {selectedRecordStats && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gradient-to-r from-slate-50 via-indigo-50/20 to-slate-50 dark:from-slate-800/40 dark:via-indigo-950/20 dark:to-slate-800/40 rounded-xl border border-indigo-200/50 dark:border-indigo-900/50">
-              <div>
-                <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
-                  <span>Project Work Completion</span>
-                  <span className="text-indigo-600 dark:text-indigo-400 font-black">
-                    {selectedRecord.overallCompletionPercent}% Completed
-                  </span>
-                </div>
-                <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-indigo-500 to-blue-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${selectedRecord.overallCompletionPercent}%` }}
-                  />
-                </div>
-              </div>
+          {/* Project Work Completion Currency Note Progress Bar */}
+          <ProjectProgressBar
+            percent={selectedRecord.overallCompletionPercent}
+            onPercentChange={handleUpdateCompletionPercent}
+            title={`${selectedRecord.companyName} — Execution Progress`}
+            subtitle="Interactive delivery progress bar featuring currency banknote runway & value realization milestones"
+            showControls={true}
+            editable={true}
+          />
 
+          {/* Quick Financial Summary */}
+          {selectedRecordStats && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gradient-to-r from-slate-50 via-emerald-50/20 to-slate-50 dark:from-slate-800/40 dark:via-emerald-950/20 dark:to-slate-800/40 rounded-xl border border-emerald-200/50 dark:border-emerald-900/50">
               <div>
                 <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                   <span>Payment Realized</span>
@@ -1636,8 +1907,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </div>
             </div>
 
-            {/* The Two Main Options: 1. Delivery  vs  2. Payment Terms */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* The Three Main Options: 1. Delivery  vs  2. Payment Terms  vs  3. Contract (Combined) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Option 1: Delivery */}
               <div
                 onClick={() => handleUpdateTenureType("delivery")}
@@ -1680,7 +1951,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 </div>
 
                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-3 leading-relaxed">
-                  Payment comes in milestones tied directly to delivery progress. E.g., when <strong>20% of the project</strong> is completed then <strong>30% payment</strong> is released, similar to progress completion.
+                  Payment comes in milestones tied directly to delivery progress. E.g., when <strong>20% of the project</strong> is completed then <strong>30% payment</strong> is released.
                 </p>
 
                 <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-500">
@@ -1743,12 +2014,189 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   </span>
                 </div>
               </div>
+
+              {/* Option 3: Contract (Combined Delivery + Payment Terms) */}
+              <div
+                onClick={() => handleUpdateTenureType("contract")}
+                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative overflow-hidden ${
+                  selectedRecord.tenureType === "contract"
+                    ? "border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/40 shadow-md ring-2 ring-emerald-500/20"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900"
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div
+                      className={`p-2.5 rounded-xl ${
+                        selectedRecord.tenureType === "contract"
+                          ? "bg-emerald-600 text-white"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                      }`}
+                    >
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-black text-slate-900 dark:text-white">
+                        Contract
+                      </h4>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                        Combined (Delivery + Terms)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                      selectedRecord.tenureType === "contract"
+                        ? "border-emerald-600 bg-emerald-600 text-white"
+                        : "border-slate-300 dark:border-slate-700"
+                    }`}
+                  >
+                    {selectedRecord.tenureType === "contract" && <Check className="w-3 h-3 stroke-[3]" />}
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-3 leading-relaxed">
+                  Master contract model combining <strong>delivery milestones</strong> and <strong>scheduled payment terms</strong>. Upfront advance & time terms work alongside progress completion releases.
+                </p>
+
+                <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-500">
+                  <span>Contract Structure:</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-black">
+                    {selectedRecord.deliveryMilestones.length} Milestones + {selectedRecord.paymentTerms.length} Terms
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* ========================================================= */}
-            {/* SUB-SECTION A: When "Delivery" Tenure Option is Active */}
+            {/* MASTER CONTRACT COMBINED WORKSPACE HEADER & SUMMARY */}
             {/* ========================================================= */}
-            {selectedRecord.tenureType === "delivery" && (
+            {selectedRecord.tenureType === "contract" && (() => {
+              const mAllocPct = (selectedRecord.deliveryMilestones || []).reduce((sum, m) => sum + (m.paymentPercent || 0), 0);
+              const mAllocAmt = (selectedRecord.deliveryMilestones || []).reduce((sum, m) => sum + (m.amount || 0), 0);
+              const mRecAmt = (selectedRecord.deliveryMilestones || []).filter(m => m.paymentStatus === "received").reduce((sum, m) => sum + (m.amount || 0), 0);
+
+              const tAllocPct = (selectedRecord.paymentTerms || []).reduce((sum, t) => sum + (t.paymentPercent || 0), 0);
+              const tAllocAmt = (selectedRecord.paymentTerms || []).reduce((sum, t) => sum + (t.amount || 0), 0);
+              const tRecAmt = (selectedRecord.paymentTerms || []).filter(t => t.paymentStatus === "received").reduce((sum, t) => sum + (t.amount || 0), 0);
+
+              const totalAllocPct = mAllocPct + tAllocPct;
+              const totalRecAmt = mRecAmt + tRecAmt;
+              const totalRecPct = selectedRecord.dealValue > 0 ? Math.round((totalRecAmt / selectedRecord.dealValue) * 100) : 0;
+
+              return (
+                <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-indigo-500/10 border-2 border-emerald-400/40 dark:border-emerald-600/40 space-y-4 shadow-sm animate-fadeIn">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/20">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2 flex-wrap">
+                          <span>Master Contract Schedule</span>
+                          <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            Delivery + Payment Terms Hybrid
+                          </span>
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Track and manage both upfront/time scheduled installments and completion milestone releases under this master agreement.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Sub-view toggle buttons */}
+                    <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs self-start sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => setContractSubView("all")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 ${
+                          contractSubView === "all"
+                            ? "bg-emerald-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                        }`}
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>Combined ({selectedRecord.deliveryMilestones.length + selectedRecord.paymentTerms.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setContractSubView("milestones")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 ${
+                          contractSubView === "milestones"
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                        }`}
+                      >
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>Milestones ({selectedRecord.deliveryMilestones.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setContractSubView("terms")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 ${
+                          contractSubView === "terms"
+                            ? "bg-blue-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                        }`}
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>Terms ({selectedRecord.paymentTerms.length})</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Contract Realization Breakdown Strip */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-emerald-200/60 dark:border-emerald-800/60 text-xs">
+                    <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-slate-200 dark:border-slate-800 space-y-0.5">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
+                        1. Advance & Terms Allocation
+                      </span>
+                      <div className="flex items-center justify-between">
+                        <strong className="text-slate-900 dark:text-white font-black">{formatINR(tAllocAmt)}</strong>
+                        <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">{tAllocPct}% of deal</span>
+                      </div>
+                      <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                        Received: {formatINR(tRecAmt)}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-slate-200 dark:border-slate-800 space-y-0.5">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
+                        2. Delivery Milestones Allocation
+                      </span>
+                      <div className="flex items-center justify-between">
+                        <strong className="text-slate-900 dark:text-white font-black">{formatINR(mAllocAmt)}</strong>
+                        <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">{mAllocPct}% of deal</span>
+                      </div>
+                      <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                        Received: {formatINR(mRecAmt)}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-emerald-300/80 dark:border-emerald-700/80 space-y-0.5 bg-emerald-50/40 dark:bg-emerald-950/20">
+                      <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold block uppercase tracking-wider">
+                        Combined Contract Realization
+                      </span>
+                      <div className="flex items-center justify-between">
+                        <strong className="text-emerald-700 dark:text-emerald-300 font-black text-sm">{formatINR(totalRecAmt)}</strong>
+                        <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">{totalRecPct}%</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Total Allocation: {totalAllocPct}% (Target: 100%)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ========================================================= */}
+            {/* SUB-SECTION A: When "Delivery" or "Contract" is Active */}
+            {/* ========================================================= */}
+            {(selectedRecord.tenureType === "delivery" ||
+              (selectedRecord.tenureType === "contract" &&
+                (contractSubView === "all" || contractSubView === "milestones"))) && (
               <div className="mt-6 bg-slate-50/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
                   <div>
@@ -1940,9 +2388,11 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             )}
 
             {/* ========================================================= */}
-            {/* SUB-SECTION B: When "Payment Terms" Option is Active */}
+            {/* SUB-SECTION B: When "Payment Terms" or "Contract" is Active */}
             {/* ========================================================= */}
-            {selectedRecord.tenureType === "payment_terms" && (
+            {(selectedRecord.tenureType === "payment_terms" ||
+              (selectedRecord.tenureType === "contract" &&
+                (contractSubView === "all" || contractSubView === "terms"))) && (
               <div className="mt-6 bg-slate-50/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
                   <div>
@@ -2485,6 +2935,19 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   Owner: {selectedOwnerFilter}
                 </span>
               )}
+              {selectedMonthFilter !== "all" && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 inline-flex items-center space-x-1">
+                  <span>Month: {selectedMonthFilter}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMonthFilter("all")}
+                    className="hover:text-rose-600 transition cursor-pointer"
+                    title="Clear month filter"
+                  >
+                    <X className="w-2.5 h-2.5 inline" />
+                  </button>
+                </span>
+              )}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isAdmin
@@ -2552,6 +3015,42 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </button>
             )}
 
+            {/* Month Filter Dropdown */}
+            <div className="relative">
+              <select
+                value={selectedMonthFilter}
+                onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                className={`text-xs font-bold px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border rounded-xl text-slate-700 dark:text-slate-200 transition ${
+                  selectedMonthFilter !== "all"
+                    ? "border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300"
+                    : "border-slate-200 dark:border-slate-700"
+                }`}
+                title="Filter delivery projects by month"
+              >
+                <option value="all">
+                  All Months ({monthWiseRevenueList.length})
+                </option>
+                {monthWiseRevenueList.map((m) => (
+                  <option key={m.monthKey} value={m.monthKey}>
+                    {m.monthKey} ({m.accountsCount} {m.accountsCount === 1 ? "project" : "projects"})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedMonthFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => setSelectedMonthFilter("all")}
+                className="flex items-center space-x-1 px-2.5 py-1.5 text-xs bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/60 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-xl font-bold transition cursor-pointer"
+                title="Clear month filter"
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>{selectedMonthFilter}</span>
+                <X className="w-3.5 h-3.5 ml-0.5" />
+              </button>
+            )}
+
             <select
               value={selectedTenureFilter}
               onChange={(e) => setSelectedTenureFilter(e.target.value)}
@@ -2560,6 +3059,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               <option value="all">All Tenure Models</option>
               <option value="delivery">Delivery (% Completion)</option>
               <option value="payment_terms">Payment Terms (Schedule)</option>
+              <option value="contract">Contract (Delivery + Terms)</option>
             </select>
 
             <select
@@ -2609,18 +3109,9 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                 {filteredRecords.map((r) => {
-                  let receivedAmt = 0;
-                  if (r.tenureType === "delivery") {
-                    r.deliveryMilestones.forEach((m) => {
-                      if (m.paymentStatus === "received") receivedAmt += m.amount;
-                    });
-                  } else {
-                    r.paymentTerms.forEach((t) => {
-                      if (t.paymentStatus === "received") receivedAmt += t.amount;
-                    });
-                  }
-                  const percentReceived =
-                    r.dealValue > 0 ? Math.round((receivedAmt / r.dealValue) * 100) : 0;
+                  const fin = getRecordFinancials(r);
+                  const receivedAmt = fin.received;
+                  const percentReceived = Math.round(fin.realizationRate);
 
                   const isSelected = selectedRecordId === r.id;
 
@@ -2680,6 +3171,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                           className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-black border ${
                             r.tenureType === "delivery"
                               ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800"
+                              : r.tenureType === "contract"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
                               : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800"
                           }`}
                         >
@@ -2687,6 +3180,11 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             <>
                               <Truck className="w-3 h-3" />
                               <span>Delivery (% Milestone)</span>
+                            </>
+                          ) : r.tenureType === "contract" ? (
+                            <>
+                              <FileText className="w-3 h-3" />
+                              <span>Contract (Hybrid)</span>
                             </>
                           ) : (
                             <>
@@ -2697,16 +3195,13 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         </span>
                       </td>
 
-                      <td className="py-3.5 px-4 min-w-[130px]">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                          <span>{r.overallCompletionPercent}%</span>
-                        </div>
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
-                          <div
-                            className="bg-indigo-600 h-full rounded-full"
-                            style={{ width: `${r.overallCompletionPercent}%` }}
-                          />
-                        </div>
+                      <td className="py-3.5 px-4 min-w-[150px]">
+                        <ProjectProgressBar
+                          percent={r.overallCompletionPercent}
+                          compact={true}
+                          showControls={false}
+                          editable={false}
+                        />
                       </td>
 
                       <td className="py-3.5 px-4 min-w-[130px]">
@@ -2855,19 +3350,27 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                           <div className="flex items-center space-x-1.5">
                             <button
                               onClick={() => handleImportLead(lead, "delivery")}
-                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center space-x-1"
+                              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center space-x-1"
                               title="Set up with Delivery (% Completion) Tenure"
                             >
                               <Truck className="w-3.5 h-3.5" />
-                              <span>To Delivery</span>
+                              <span>Delivery</span>
                             </button>
                             <button
                               onClick={() => handleImportLead(lead, "payment_terms")}
-                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center space-x-1"
+                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center space-x-1"
                               title="Set up with Payment Terms Tenure"
                             >
                               <Calendar className="w-3.5 h-3.5" />
-                              <span>Payment Terms</span>
+                              <span>Terms</span>
+                            </button>
+                            <button
+                              onClick={() => handleImportLead(lead, "contract")}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center space-x-1"
+                              title="Set up with Hybrid Contract (Delivery + Payment Terms) Tenure"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Contract</span>
                             </button>
                           </div>
                         )}
@@ -3007,6 +3510,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 >
                   <option value="delivery">Delivery (Project Completion Milestones)</option>
                   <option value="payment_terms">Payment Terms (Advance & Schedule)</option>
+                  <option value="contract">Contract (Delivery Milestones + Payment Terms)</option>
                 </select>
               </div>
             </div>
@@ -3048,7 +3552,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 <div className="mt-2.5 p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-[11px] text-slate-600 dark:text-slate-400 space-y-1 border border-slate-200 dark:border-slate-700">
                   <div>• Program: <span className="font-semibold text-slate-800 dark:text-slate-200">{projectToDelete.program}</span></div>
                   <div>• Value: <span className="font-semibold text-slate-800 dark:text-slate-200">{formatINR(projectToDelete.dealValue)}</span></div>
-                  <div>• Tenure Model: <span className="font-semibold text-slate-800 dark:text-slate-200">{projectToDelete.tenureType === "delivery" ? "Delivery (% Milestone)" : "Payment Terms"}</span></div>
+                  <div>• Tenure Model: <span className="font-semibold text-slate-800 dark:text-slate-200">{projectToDelete.tenureType === "delivery" ? "Delivery (% Milestone)" : projectToDelete.tenureType === "contract" ? "Contract (Delivery + Terms)" : "Payment Terms"}</span></div>
                 </div>
               </div>
             </div>

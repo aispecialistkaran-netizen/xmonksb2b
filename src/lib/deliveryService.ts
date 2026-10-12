@@ -111,6 +111,56 @@ export function createDefaultPaymentTerms(dealValue: number): PaymentTermTranche
   ];
 }
 
+/**
+ * 3. Contract Option: Combination of Delivery Milestones & Payment Terms
+ * Advance & scheduled payment terms combined with delivery progress milestones
+ */
+export function createDefaultContractSchedule(dealValue: number): {
+  deliveryMilestones: DeliveryMilestoneTranche[];
+  paymentTerms: PaymentTermTranche[];
+} {
+  return {
+    paymentTerms: [
+      {
+        id: `term-contract-${Date.now()}-1`,
+        termLabel: "Mobilization Advance (PO / Signing)",
+        isAdvance: true,
+        timeframe: "Advance (Immediate on Contract)",
+        paymentPercent: 30,
+        amount: Math.round(dealValue * 0.3),
+        dueDate: new Date().toISOString().split("T")[0],
+        paymentStatus: "received",
+        paymentReceivedDate: new Date().toISOString().split("T")[0],
+        notes: "30% upfront contract mobilization advance deposit.",
+      },
+    ],
+    deliveryMilestones: [
+      {
+        id: `milestone-contract-${Date.now()}-1`,
+        milestoneTitle: "Phase 1: Diagnostic & Core Implementation",
+        projectCompletionPercent: 50,
+        paymentPercent: 40,
+        amount: Math.round(dealValue * 0.4),
+        milestoneStatus: "in_progress",
+        paymentStatus: "pending",
+        targetDate: new Date(Date.now() + 60 * 86400000).toISOString().split("T")[0],
+        notes: "40% payment released upon 50% project delivery milestone.",
+      },
+      {
+        id: `milestone-contract-${Date.now()}-2`,
+        milestoneTitle: "Phase 2: Final Delivery, Evaluation & Sign-off",
+        projectCompletionPercent: 100,
+        paymentPercent: 30,
+        amount: Math.round(dealValue * 0.3),
+        milestoneStatus: "pending",
+        paymentStatus: "pending",
+        targetDate: new Date(Date.now() + 120 * 86400000).toISOString().split("T")[0],
+        notes: "Final 30% contract balance released upon 100% completion sign-off.",
+      },
+    ],
+  };
+}
+
 // Initial demonstration seed records so the delivery workspace is immediately rich & usable
 export const INITIAL_DELIVERY_RECORDS: DeliveryRecord[] = [
   {
@@ -415,8 +465,14 @@ export async function createDeliveryRecordFromLead(
       ? `${lead.closureMonth}-28`
       : new Date(Date.now() + 180 * 86400000).toISOString().split("T")[0],
     notes: lead.notes || `Won closure deal transferred to delivery pipeline.`,
-    deliveryMilestones: createDefaultDeliveryMilestones(dealValue),
-    paymentTerms: createDefaultPaymentTerms(dealValue),
+    deliveryMilestones:
+      tenureType === "contract"
+        ? createDefaultContractSchedule(dealValue).deliveryMilestones
+        : createDefaultDeliveryMilestones(dealValue),
+    paymentTerms:
+      tenureType === "contract"
+        ? createDefaultContractSchedule(dealValue).paymentTerms
+        : createDefaultPaymentTerms(dealValue),
     deliveryLogs: [
       {
         id: `log-init-${Date.now()}`,
@@ -428,7 +484,7 @@ export async function createDeliveryRecordFromLead(
         }),
         author: lead.owner || "System",
         type: "status_change",
-        message: `Won deal transferred from Closure stage to Delivery pipeline.`,
+        message: `Won deal transferred from Closure stage to Delivery pipeline (${tenureType.toUpperCase()} tenure model).`,
       },
     ],
   };
@@ -474,6 +530,8 @@ export async function updateDeliveryRecord(
       message: `Tenure model switched to ${
         updates.tenureType === "delivery"
           ? "Delivery (% Completion Milestones)"
+          : updates.tenureType === "contract"
+          ? "Contract (Delivery Milestones + Payment Terms)"
           : "Payment Terms (Time & Advance Schedule)"
       }.`,
     });

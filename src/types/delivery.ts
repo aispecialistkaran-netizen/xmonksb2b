@@ -1,6 +1,6 @@
 import { LeadStage, ApproachNote, FinancialDocument, ContactPerson, JourneyLog } from "./lead";
 
-export type TenureType = "delivery" | "payment_terms";
+export type TenureType = "delivery" | "payment_terms" | "contract";
 
 export type MilestoneCompletionStatus = "pending" | "in_progress" | "completed";
 export type TranchePaymentStatus = "pending" | "invoiced" | "received" | "overdue";
