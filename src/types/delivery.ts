@@ -5,6 +5,7 @@ export type TenureType = "delivery" | "payment_terms" | "contract";
 export type MilestoneCompletionStatus = "pending" | "in_progress" | "completed";
 export type TranchePaymentStatus = "pending" | "invoiced" | "received" | "overdue";
 export type DeliveryOverallStatus = "not_started" | "in_progress" | "delivered" | "on_hold";
+export type ProjectHealthStatus = "on_track" | "at_risk" | "stalled";
 
 /**
  * 1. Delivery Option: Milestone & Project Completion Linked Payment Tranche
@@ -22,6 +23,11 @@ export interface DeliveryMilestoneTranche {
   completionDate?: string;
   paymentReceivedDate?: string;
   invoiceNumber?: string;
+  invoiceDate?: string;
+  gstNumber?: string;
+  utrNumber?: string; // UTR / Wire Reference / Cheque number
+  bankReference?: string;
+  paymentProofUrl?: string;
   notes?: string;
 }
 
@@ -40,7 +46,45 @@ export interface PaymentTermTranche {
   paymentStatus: TranchePaymentStatus;
   paymentReceivedDate?: string;
   invoiceNumber?: string;
+  invoiceDate?: string;
+  gstNumber?: string;
+  utrNumber?: string;
+  bankReference?: string;
+  paymentProofUrl?: string;
   notes?: string;
+}
+
+/**
+ * 3. Faculty & Coach Allocation Matrix
+ * Tracks ICF Executive Coaches, Facilitators, and delivery faculty assigned to engagements
+ */
+export interface CoachAssignment {
+  id: string;
+  name: string;
+  role: "lead_facilitator" | "executive_coach" | "program_manager" | "faculty";
+  email?: string;
+  phone?: string;
+  payoutRate?: number; // Total or per-session payout in INR
+  assignedSessionsCount: number;
+  completedSessionsCount: number;
+  notes?: string;
+}
+
+/**
+ * 4. Client Sign-off & CSAT Pulse
+ * Formal client acceptance certificate & satisfaction rating
+ */
+export interface ClientSignoff {
+  signatoryName: string;
+  signatoryDesignation: string;
+  signatoryEmail?: string;
+  signoffDate: string;
+  feedbackNotes?: string;
+  clientFeedback?: string;
+  csatRating: number; // 1 to 5 stars
+  npsScore?: number; // 0 to 10
+  certificateGenerated?: boolean;
+  certificateDate?: string;
 }
 
 export interface DeliveryLog {
@@ -48,7 +92,16 @@ export interface DeliveryLog {
   timestamp: string;
   formattedDate: string;
   author: string;
-  type: "status_change" | "milestone_update" | "payment_received" | "tenure_change" | "note";
+  type:
+    | "status_change"
+    | "milestone_update"
+    | "payment_received"
+    | "tenure_change"
+    | "health_change"
+    | "coach_assigned"
+    | "invoice_generated"
+    | "client_signoff"
+    | "note";
   message: string;
 }
 
@@ -83,7 +136,7 @@ export interface DeliveryRecord {
   journeyLogs?: JourneyLog[];
 
   // Tenure Configuration
-  tenureType: TenureType; // "delivery" | "payment_terms"
+  tenureType: TenureType; // "delivery" | "payment_terms" | "contract"
 
   // Option 1: Delivery (Project Completion Milestones)
   deliveryMilestones: DeliveryMilestoneTranche[];
@@ -98,4 +151,24 @@ export interface DeliveryRecord {
   targetCompletionDate?: string;
   notes?: string;
   deliveryLogs?: DeliveryLog[];
+
+  // 1. Delivery Risk & Project Health
+  projectHealth?: ProjectHealthStatus; // "on_track" | "at_risk" | "stalled"
+  healthBlocker?: string; // Description of current operational blocker
+
+  // 2. Invoicing details
+  gstNumber?: string;
+  clientBillingAddress?: string;
+
+  // 3. Coach & Faculty Allocation Matrix
+  coaches?: CoachAssignment[];
+  coachingSessionsTotal?: number;
+  coachingSessionsCompleted?: number;
+  totalFacultyCost?: number; // Total coach payouts in INR
+
+  // 5. Client Sign-off & CSAT Pulse
+  clientSignoff?: ClientSignoff;
+
+  // 6. Client Shareable Portal Token
+  shareToken?: string;
 }

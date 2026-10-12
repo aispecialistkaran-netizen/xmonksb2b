@@ -50,6 +50,16 @@ import {
   Layers,
   ChevronUp,
   Lock,
+  FileSpreadsheet,
+  Share2,
+  Award,
+  AlertTriangle,
+  Star,
+  FileCheck2,
+  Printer,
+  Copy,
+  LayoutGrid,
+  CalendarRange,
 } from "lucide-react";
 import { formatINR, formatClosureMonth, getDateComponents } from "@/lib/formatters";
 import { UserAccount, getUserProfile, VALID_USERS, isSameOwner, getCanonicalOwnerName } from "@/constants/users";
@@ -65,6 +75,9 @@ import {
   DeliveryOverallStatus,
   MilestoneCompletionStatus,
   TranchePaymentStatus,
+  CoachAssignment,
+  ClientSignoff,
+  ProjectHealthStatus,
 } from "@/types/delivery";
 import { SpringButton, SpringWidget, SpringCounter } from "@/components/spring";
 import {
@@ -76,6 +89,19 @@ import {
   createDefaultPaymentTerms,
 } from "@/lib/deliveryService";
 import { ProjectProgressBar } from "@/components/ProjectProgressBar";
+import { DeliveryRiskRadar } from "@/components/DeliveryRiskRadar";
+import { DeliveryInvoiceModal } from "@/components/DeliveryInvoiceModal";
+import { CoachAllocationDrawer } from "@/components/CoachAllocationDrawer";
+import { DeliveryTimelineView } from "@/components/DeliveryTimelineView";
+import { ClientSignoffModal } from "@/components/ClientSignoffModal";
+import { ClientShareablePortalModal } from "@/components/ClientShareablePortalModal";
+import {
+  calculateAgingReceivables,
+  calculateDeliveryHealth,
+  generateDeliveryPortfolioCSV,
+  generateExecutiveMatrixCSV,
+  downloadCSV,
+} from "@/lib/deliveryAnalytics";
 import confetti from "canvas-confetti";
 
 interface DeliveryTabProps {
@@ -96,7 +122,12 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
-  const [projectSubTab, setProjectSubTab] = useState<"tenure" | "pipeline_data">("tenure");
+  const [projectSubTab, setProjectSubTab] = useState<
+    "tenure" | "pipeline_data" | "coaches" | "signoff"
+  >("tenure");
+
+  // Delivery View Mode Switcher: Table View vs Interactive Gantt Timeline View
+  const [deliveryViewMode, setDeliveryViewMode] = useState<"table" | "timeline">("table");
 
   // Contract Sub-View Switcher (when tenure is contract)
   const [contractSubView, setContractSubView] = useState<"all" | "milestones" | "terms">("all");
@@ -110,7 +141,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
   // Executive Header Analytics Controls
   const [headerAnalyticsTab, setHeaderAnalyticsTab] = useState<
-    "owner_matrix" | "month_wise" | "payment_insights"
+    "owner_matrix" | "month_wise" | "payment_insights" | "risk_radar"
   >("owner_matrix");
   const [isAnalyticsExpanded, setIsAnalyticsExpanded] = useState<boolean>(true);
 
@@ -118,6 +149,25 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<DeliveryRecord | null>(null);
+
+  // Invoice / UTR Tracking Modal
+  const [invoiceModalState, setInvoiceModalState] = useState<{
+    isOpen: boolean;
+    record: DeliveryRecord | null;
+    item: DeliveryMilestoneTranche | PaymentTermTranche | null;
+    itemType: "milestone" | "payment_term";
+  }>({
+    isOpen: false,
+    record: null,
+    item: null,
+    itemType: "milestone",
+  });
+
+  // Client Sign-off Modal
+  const [isSignoffModalOpen, setIsSignoffModalOpen] = useState(false);
+
+  // Client Shareable Portal Modal
+  const [isSharePortalModalOpen, setIsSharePortalModalOpen] = useState(false);
   const [newProjectForm, setNewProjectForm] = useState({
     companyName: "",
     dealValue: 1500000,
@@ -606,6 +656,170 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     leads,
     isAdmin,
   ]);
+
+  // Aging Receivables and Health Summaries
+  const agingReceivablesSummary = useMemo(
+    () => calculateAgingReceivables(recordsForAnalytics),
+    [recordsForAnalytics]
+  );
+
+  const deliveryHealthSummary = useMemo(
+    () => calculateDeliveryHealth(recordsForAnalytics),
+    [recordsForAnalytics]
+  );
+
+  // Update Project Health & Blocker
+  const handleUpdateProjectHealth = async (
+    health: ProjectHealthStatus,
+    blocker?: string
+  ) => {
+    if (!selectedRecord) return;
+    try {
+      const updated = await updateDeliveryRecord(
+        selectedRecord.id,
+        {
+          projectHealth: health,
+          healthBlocker: blocker !== undefined ? blocker : selectedRecord.healthBlocker,
+        },
+        currentUser?.name || "User"
+      );
+      if (updated) {
+        setDeliveryRecords((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+      }
+    } catch (e) {
+      console.error("Error updating project health", e);
+    }
+  };
+
+  // Update Coaches & Faculty allocation
+  const handleUpdateCoaches = async (
+    coaches: CoachAssignment[],
+    coachingSessionsTotal: number,
+    coachingSessionsCompleted: number,
+    totalFacultyCost: number
+  ) => {
+    if (!selectedRecord) return;
+    try {
+      const updated = await updateDeliveryRecord(
+        selectedRecord.id,
+        {
+          coaches,
+          coachingSessionsTotal,
+          coachingSessionsCompleted,
+          totalFacultyCost,
+        },
+        currentUser?.name || "User"
+      );
+      if (updated) {
+        setDeliveryRecords((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+      }
+    } catch (e) {
+      console.error("Error updating coaches", e);
+    }
+  };
+
+  // Save Client Formal Sign-off
+  const handleSaveSignoff = async (signoff: ClientSignoff) => {
+    if (!selectedRecord) return;
+    try {
+      const updated = await updateDeliveryRecord(
+        selectedRecord.id,
+        {
+          clientSignoff: signoff,
+          deliveryStatus: "delivered",
+          overallCompletionPercent: 100,
+        },
+        currentUser?.name || "Client Partner"
+      );
+      if (updated) {
+        setDeliveryRecords((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+        try {
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        } catch {}
+      }
+    } catch (e) {
+      console.error("Error saving client sign-off", e);
+    }
+  };
+
+  // Save UTR Number and mark payment received
+  const handleSaveUTR = async (
+    itemId: string,
+    itemType: "milestone" | "payment_term",
+    invoiceNumber: string,
+    utrNumber: string,
+    bankReference: string,
+    paymentDate: string
+  ) => {
+    if (!selectedRecord) return;
+    try {
+      let updatedMilestones = selectedRecord.deliveryMilestones;
+      let updatedTerms = selectedRecord.paymentTerms;
+
+      if (itemType === "milestone") {
+        updatedMilestones = (selectedRecord.deliveryMilestones || []).map((m) =>
+          m.id === itemId
+            ? {
+                ...m,
+                invoiceNumber,
+                utrNumber,
+                bankReference,
+                paymentReceivedDate: paymentDate,
+                paymentStatus: "received" as const,
+              }
+            : m
+        );
+      } else {
+        updatedTerms = (selectedRecord.paymentTerms || []).map((t) =>
+          t.id === itemId
+            ? {
+                ...t,
+                invoiceNumber,
+                utrNumber,
+                bankReference,
+                paymentReceivedDate: paymentDate,
+                paymentStatus: "received" as const,
+              }
+            : t
+        );
+      }
+
+      const updated = await updateDeliveryRecord(
+        selectedRecord.id,
+        {
+          deliveryMilestones: updatedMilestones,
+          paymentTerms: updatedTerms,
+        },
+        currentUser?.name || "User"
+      );
+      if (updated) {
+        setDeliveryRecords((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+      }
+    } catch (e) {
+      console.error("Error recording UTR and payment", e);
+    }
+  };
+
+  // CSV Exporters
+  const handleExportPortfolioCSV = () => {
+    const csv = generateDeliveryPortfolioCSV(accessibleDeliveryRecords);
+    const dateStr = new Date().toISOString().split("T")[0];
+    downloadCSV(`xmonks-delivery-portfolio-${dateStr}.csv`, csv);
+  };
+
+  const handleExportMatrixCSV = () => {
+    const csv = generateExecutiveMatrixCSV(accessibleDeliveryRecords, ownerPerformanceList);
+    const dateStr = new Date().toISOString().split("T")[0];
+    downloadCSV(`xmonks-executive-revenue-matrix-${dateStr}.csv`, csv);
+  };
 
   // Handlers
   const handleSelectRecord = (id: string) => {
@@ -1177,6 +1391,52 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   <CreditCard className="w-3.5 h-3.5" />
                   <span>Payment Insights</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeaderAnalyticsTab("risk_radar");
+                    setIsAnalyticsExpanded(true);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    headerAnalyticsTab === "risk_radar" && isAnalyticsExpanded
+                      ? "bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm font-black"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Risk & Aging Radar</span>
+                  {agingReceivablesSummary.totalOverdueAmount > 0 && (
+                    <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold">
+                      {agingReceivablesSummary.under30Days.count +
+                        agingReceivablesSummary.days30to60.count +
+                        agingReceivablesSummary.days60Plus.count}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* CSV Export Actions */}
+              <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  onClick={handleExportPortfolioCSV}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                  title="Export complete delivery portfolio dataset to CSV"
+                >
+                  <Download className="w-3.5 h-3.5 text-indigo-500" />
+                  <span className="hidden sm:inline">Export Portfolio</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportMatrixCSV}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                  title="Export executive revenue matrix to CSV"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="hidden sm:inline">Export Matrix</span>
+                </button>
               </div>
 
               {/* Collapse / Expand Toggle */}
@@ -1683,6 +1943,17 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* TAB 4: AGING RECEIVABLES & DELIVERY RISK RADAR */}
+              {headerAnalyticsTab === "risk_radar" && (
+                <DeliveryRiskRadar
+                  records={recordsForAnalytics}
+                  agingSummary={agingReceivablesSummary}
+                  healthSummary={deliveryHealthSummary}
+                  onSelectRecord={handleSelectRecord}
+                  selectedMonthFilter={selectedMonthFilter}
+                />
+              )}
             </div>
           )}
         </div>
@@ -1740,8 +2011,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </div>
             </div>
 
-            {/* Delivery Status & Progress Controls */}
-            <div className="flex items-center space-x-3 bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+            {/* Delivery Status, Project Health & Progress Controls */}
+            <div className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
               <div>
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                   Delivery Status
@@ -1755,6 +2026,21 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   <option value="in_progress">🔵 In Progress</option>
                   <option value="delivered">🟢 Delivered (Done)</option>
                   <option value="on_hold">🟡 On Hold</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Health & Radar
+                </label>
+                <select
+                  value={selectedRecord.projectHealth || "on_track"}
+                  onChange={(e) => handleUpdateProjectHealth(e.target.value as ProjectHealthStatus)}
+                  className="mt-1 text-xs font-black rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="on_track">🟢 On Track</option>
+                  <option value="at_risk">🟡 At Risk</option>
+                  <option value="stalled">🔴 Stalled / Blocked</option>
                 </select>
               </div>
 
@@ -1788,6 +2074,30 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Blockers alert if project is At Risk or Stalled */}
+          {(selectedRecord.projectHealth === "at_risk" ||
+            selectedRecord.projectHealth === "stalled" ||
+            selectedRecord.healthBlocker) && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 rounded-xl flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-800 dark:text-amber-300 shrink-0">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>Delivery Blocker Log:</span>
+              </div>
+              <input
+                type="text"
+                defaultValue={selectedRecord.healthBlocker || ""}
+                placeholder="Log blocker details (e.g., Awaiting cohort availability, pending sign-off)..."
+                onBlur={(e) =>
+                  handleUpdateProjectHealth(
+                    selectedRecord.projectHealth || "at_risk",
+                    e.target.value
+                  )
+                }
+                className="flex-1 px-3 py-1 text-xs rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+          )}
 
           {/* Project Work Completion Currency Note Progress Bar */}
           <ProjectProgressBar
@@ -1849,6 +2159,48 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
               <button
                 type="button"
+                onClick={() => setProjectSubTab("coaches")}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-black transition cursor-pointer ${
+                  projectSubTab === "coaches"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <Users className="w-4 h-4 text-indigo-500" />
+                <span>Coaches & Faculty</span>
+                {selectedRecord.coaches && selectedRecord.coaches.length > 0 && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                      projectSubTab === "coaches"
+                        ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400"
+                        : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    {selectedRecord.coaches.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProjectSubTab("signoff")}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-black transition cursor-pointer ${
+                  projectSubTab === "signoff"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <Award className="w-4 h-4 text-amber-500" />
+                <span>Client Sign-off</span>
+                {selectedRecord.clientSignoff && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                    ★ {selectedRecord.clientSignoff.csatRating}/5
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setProjectSubTab("pipeline_data")}
                 className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-black transition cursor-pointer ${
                   projectSubTab === "pipeline_data"
@@ -1875,17 +2227,39 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </button>
             </div>
 
-            {matchingLead && onSelectLead && (
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => onSelectLead(matchingLead)}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 rounded-xl text-xs font-bold transition cursor-pointer"
-                title="Open the complete pipeline lead modal"
+                onClick={() => setIsSharePortalModalOpen(true)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="Generate tokenized read-only link for client sponsor"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Open Lead in Pipeline</span>
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Client Portal Link</span>
               </button>
-            )}
+
+              <button
+                type="button"
+                onClick={() => setIsSignoffModalOpen(true)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="Client formal acceptance sign-off & CSAT pulse"
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>Sign-off / CSAT</span>
+              </button>
+
+              {matchingLead && onSelectLead && (
+                <button
+                  type="button"
+                  onClick={() => onSelectLead(matchingLead)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                  title="Open the complete pipeline lead modal"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Lead</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* VIEW 1: TENURE & PAYMENT MILESTONES */}
@@ -2322,28 +2696,56 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                           </td>
 
                           <td className="py-3 px-3">
-                            <select
-                              value={m.paymentStatus}
-                              onChange={(e) =>
-                                handleUpdateMilestone(m.id, {
-                                  paymentStatus: e.target.value as TranchePaymentStatus,
-                                })
-                              }
-                              className={`px-2 py-1 text-xs font-bold rounded-lg border ${
-                                m.paymentStatus === "received"
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
-                                  : m.paymentStatus === "invoiced"
-                                  ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800"
-                                  : m.paymentStatus === "overdue"
-                                  ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
-                                  : "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800"
-                              }`}
-                            >
-                              <option value="pending">⏳ Pending</option>
-                              <option value="invoiced">📄 Invoiced</option>
-                              <option value="received">💰 Received</option>
-                              <option value="overdue">⚠️ Overdue</option>
-                            </select>
+                            <div className="flex items-center space-x-1.5">
+                              <select
+                                value={m.paymentStatus}
+                                onChange={(e) =>
+                                  handleUpdateMilestone(m.id, {
+                                    paymentStatus: e.target.value as TranchePaymentStatus,
+                                  })
+                                }
+                                className={`px-2 py-1 text-xs font-bold rounded-lg border ${
+                                  m.paymentStatus === "received"
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
+                                    : m.paymentStatus === "invoiced"
+                                    ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800"
+                                    : m.paymentStatus === "overdue"
+                                    ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
+                                    : "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800"
+                                }`}
+                              >
+                                <option value="pending">⏳ Pending</option>
+                                <option value="invoiced">📄 Invoiced</option>
+                                <option value="received">💰 Received</option>
+                                <option value="overdue">⚠️ Overdue</option>
+                              </select>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInvoiceModalState({
+                                    isOpen: true,
+                                    record: selectedRecord,
+                                    item: m,
+                                    itemType: "milestone",
+                                  })
+                                }
+                                className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-lg transition shrink-0 cursor-pointer"
+                                title="One-Click Proforma/Tax Invoice Generator & UTR Proof Tracker"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {m.utrNumber && (
+                              <div
+                                className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono mt-1 flex items-center space-x-1"
+                                title={`Bank UTR: ${m.utrNumber}`}
+                              >
+                                <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">UTR: {m.utrNumber}</span>
+                              </div>
+                            )}
                           </td>
 
                           <td className="py-3 px-3 text-right">
@@ -2500,28 +2902,56 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                           </td>
 
                           <td className="py-3 px-3">
-                            <select
-                              value={t.paymentStatus}
-                              onChange={(e) =>
-                                handleUpdatePaymentTerm(t.id, {
-                                  paymentStatus: e.target.value as TranchePaymentStatus,
-                                })
-                              }
-                              className={`px-2 py-1 text-xs font-bold rounded-lg border ${
-                                t.paymentStatus === "received"
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
-                                  : t.paymentStatus === "invoiced"
-                                  ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800"
-                                  : t.paymentStatus === "overdue"
-                                  ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
-                                  : "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800"
-                              }`}
-                            >
-                              <option value="pending">⏳ Pending</option>
-                              <option value="invoiced">📄 Invoiced</option>
-                              <option value="received">💰 Received</option>
-                              <option value="overdue">⚠️ Overdue</option>
-                            </select>
+                            <div className="flex items-center space-x-1.5">
+                              <select
+                                value={t.paymentStatus}
+                                onChange={(e) =>
+                                  handleUpdatePaymentTerm(t.id, {
+                                    paymentStatus: e.target.value as TranchePaymentStatus,
+                                  })
+                                }
+                                className={`px-2 py-1 text-xs font-bold rounded-lg border ${
+                                  t.paymentStatus === "received"
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
+                                    : t.paymentStatus === "invoiced"
+                                    ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800"
+                                    : t.paymentStatus === "overdue"
+                                    ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
+                                    : "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800"
+                                }`}
+                              >
+                                <option value="pending">⏳ Pending</option>
+                                <option value="invoiced">📄 Invoiced</option>
+                                <option value="received">💰 Received</option>
+                                <option value="overdue">⚠️ Overdue</option>
+                              </select>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInvoiceModalState({
+                                    isOpen: true,
+                                    record: selectedRecord,
+                                    item: t,
+                                    itemType: "payment_term",
+                                  })
+                                }
+                                className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-lg transition shrink-0 cursor-pointer"
+                                title="One-Click Proforma/Tax Invoice Generator & UTR Proof Tracker"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {t.utrNumber && (
+                              <div
+                                className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono mt-1 flex items-center space-x-1"
+                                title={`Bank UTR: ${t.utrNumber}`}
+                              >
+                                <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">UTR: {t.utrNumber}</span>
+                              </div>
+                            )}
                           </td>
 
                           <td className="py-3 px-3 text-right">
@@ -2913,6 +3343,87 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             </div>
           </div>
         )}
+
+        {/* VIEW 3: COACH & FACULTY ALLOCATION MATRIX */}
+        {projectSubTab === "coaches" && (
+          <div className="pt-1 animate-fadeIn">
+            <CoachAllocationDrawer
+              record={selectedRecord}
+              onUpdateCoaches={handleUpdateCoaches}
+            />
+          </div>
+        )}
+
+        {/* VIEW 4: CLIENT SIGN-OFF & CSAT PULSE */}
+        {projectSubTab === "signoff" && (
+          <div className="pt-1 space-y-6 animate-fadeIn">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-700">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+                    <Award className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      Client Formal Acceptance & CSAT Pulse
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Record executive milestone acceptance, CSAT/NPS scores, and generate branded completion certificates.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSignoffModalOpen(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs rounded-xl shadow-md shadow-amber-500/20 transition flex items-center space-x-2 shrink-0 cursor-pointer"
+                >
+                  <Award className="w-4 h-4" />
+                  <span>{selectedRecord.clientSignoff ? "Edit Sign-off / Certificate" : "Record Formal Sign-off"}</span>
+                </button>
+              </div>
+
+              {selectedRecord.clientSignoff ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
+                  <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Authorized Signatory</span>
+                    <div className="text-sm font-black text-slate-900 dark:text-white mt-1">
+                      {selectedRecord.clientSignoff.signatoryName}
+                    </div>
+                    <div className="text-xs text-slate-500">{selectedRecord.clientSignoff.signatoryDesignation || "Client Sponsor"}</div>
+                    <div className="text-[11px] text-slate-400 mt-1">Date: {selectedRecord.clientSignoff.signoffDate}</div>
+                  </div>
+
+                  <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">CSAT & NPS Pulse</span>
+                    <div className="flex items-center space-x-2 mt-1">
+                      <div className="flex text-amber-400">
+                        {"★".repeat(selectedRecord.clientSignoff.csatRating || 5)}
+                        {"☆".repeat(5 - (selectedRecord.clientSignoff.csatRating || 5))}
+                      </div>
+                      <span className="text-sm font-black text-slate-800 dark:text-slate-200">
+                        {selectedRecord.clientSignoff.csatRating}/5
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                      Net Promoter Score: +{selectedRecord.clientSignoff.npsScore || 9}/10
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Formal Feedback</span>
+                    <p className="text-xs text-slate-700 dark:text-slate-300 italic mt-1 line-clamp-3">
+                      "{selectedRecord.clientSignoff.clientFeedback || "Outstanding program impact."}"
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  No sign-off recorded yet. Click "Record Formal Sign-off" upon milestone completion or final program wrap-up.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     )}
 
@@ -3073,10 +3584,43 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               <option value="not_started">Not Started</option>
               <option value="on_hold">On Hold</option>
             </select>
+
+            {/* View Mode Switcher: Table vs Gantt Roadmap */}
+            <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setDeliveryViewMode("table")}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  deliveryViewMode === "table"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Table</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeliveryViewMode("timeline")}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  deliveryViewMode === "timeline"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Roadmap</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {filteredRecords.length === 0 ? (
+        {deliveryViewMode === "timeline" ? (
+          <DeliveryTimelineView
+            records={filteredRecords}
+            onSelectRecord={handleSelectRecord}
+          />
+        ) : filteredRecords.length === 0 ? (
           <div className="py-12 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
             <Truck className="w-10 h-10 text-slate-300 mx-auto" />
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
@@ -3218,19 +3762,38 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       </td>
 
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                            r.deliveryStatus === "delivered"
-                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                              : r.deliveryStatus === "in_progress"
-                              ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
-                              : r.deliveryStatus === "on_hold"
-                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                          }`}
-                        >
-                          {r.deliveryStatus.replace("_", " ").toUpperCase()}
-                        </span>
+                        <div className="flex flex-col space-y-1">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              r.deliveryStatus === "delivered"
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                                : r.deliveryStatus === "in_progress"
+                                ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                                : r.deliveryStatus === "on_hold"
+                                ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                            }`}
+                          >
+                            {r.deliveryStatus.replace("_", " ").toUpperCase()}
+                          </span>
+                          <span
+                            className={`text-[10px] font-extrabold flex items-center space-x-1 ${
+                              r.projectHealth === "stalled"
+                                ? "text-rose-600 dark:text-rose-400"
+                                : r.projectHealth === "at_risk"
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-emerald-600 dark:text-emerald-400"
+                            }`}
+                          >
+                            <span>
+                              {r.projectHealth === "stalled"
+                                ? "🔴 Stalled"
+                                : r.projectHealth === "at_risk"
+                                ? "🟡 At Risk"
+                                : "🟢 On Track"}
+                            </span>
+                          </span>
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-4 text-right">
@@ -3575,6 +4138,44 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL 4: ONE-CLICK INVOICE GENERATOR & UTR PROOF MODAL */}
+      {invoiceModalState.isOpen && invoiceModalState.record && invoiceModalState.item && (
+        <DeliveryInvoiceModal
+          isOpen={invoiceModalState.isOpen}
+          onClose={() =>
+            setInvoiceModalState({
+              isOpen: false,
+              record: null,
+              item: null,
+              itemType: "milestone",
+            })
+          }
+          record={invoiceModalState.record}
+          item={invoiceModalState.item}
+          itemType={invoiceModalState.itemType}
+          onSaveUTR={handleSaveUTR}
+        />
+      )}
+
+      {/* MODAL 5: CLIENT SIGN-OFF, CSAT & COMPLETION CERTIFICATE MODAL */}
+      {isSignoffModalOpen && selectedRecord && (
+        <ClientSignoffModal
+          isOpen={isSignoffModalOpen}
+          onClose={() => setIsSignoffModalOpen(false)}
+          record={selectedRecord}
+          onSaveSignoff={handleSaveSignoff}
+        />
+      )}
+
+      {/* MODAL 6: CLIENT-FACING READ-ONLY SHAREABLE PORTAL MODAL */}
+      {isSharePortalModalOpen && selectedRecord && (
+        <ClientShareablePortalModal
+          isOpen={isSharePortalModalOpen}
+          onClose={() => setIsSharePortalModalOpen(false)}
+          record={selectedRecord}
+        />
       )}
     </div>
   );
