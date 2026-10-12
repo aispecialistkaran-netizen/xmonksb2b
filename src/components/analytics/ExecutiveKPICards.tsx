@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   ShieldCheck,
 } from "lucide-react";
+import { SpringWidget, SpringCounter } from "@/components/spring";
 
 interface ExecutiveKPICardsProps {
   leads: Lead[];
@@ -75,7 +76,10 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
       {/* 1. Total Pipeline Value */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-indigo-500/40 transition-all flex flex-col justify-between group">
+      <SpringWidget
+        delay={0}
+        className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between group"
+      >
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -86,7 +90,7 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             </div>
           </div>
           <div className="font-mono text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            {formatINR(totalPipelineValue)}
+            <SpringCounter value={totalPipelineValue} isCurrency />
           </div>
         </div>
         <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
@@ -95,10 +99,13 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             {activeLeads.length} deals
           </span>
         </div>
-      </div>
+      </SpringWidget>
 
       {/* 2. Weighted Forecast */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-indigo-500/40 transition-all flex flex-col justify-between group">
+      <SpringWidget
+        delay={70}
+        className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between group"
+      >
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -109,7 +116,7 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             </div>
           </div>
           <div className="font-mono text-xl sm:text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-tight">
-            {formatINR(totalWeightedValue)}
+            <SpringCounter value={totalWeightedValue} isCurrency />
           </div>
         </div>
         <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
@@ -118,10 +125,13 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             {weightedPercentage.toFixed(1)}% Realization
           </span>
         </div>
-      </div>
+      </SpringWidget>
 
       {/* 3. Win Rate % */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-emerald-500/40 transition-all flex flex-col justify-between group">
+      <SpringWidget
+        delay={140}
+        className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between group"
+      >
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -132,7 +142,7 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             </div>
           </div>
           <div className="font-mono text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tracking-tight">
-            {winRate.toFixed(1)}%
+            <SpringCounter value={winRate} decimals={1} suffix="%" />
           </div>
         </div>
         <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
@@ -141,10 +151,13 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             {formatINR(wonRevenue)}
           </span>
         </div>
-      </div>
+      </SpringWidget>
 
       {/* 4. Average Deal Size (ACV) */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-purple-500/40 transition-all flex flex-col justify-between group">
+      <SpringWidget
+        delay={210}
+        className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between group"
+      >
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -155,7 +168,7 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             </div>
           </div>
           <div className="font-mono text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            {formatINR(avgDealSize)}
+            <SpringCounter value={avgDealSize} isCurrency />
           </div>
         </div>
         <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
@@ -164,10 +177,13 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             {maxDealLead ? formatINR(maxDealLead.dealValue || 0) : "₹0"}
           </span>
         </div>
-      </div>
+      </SpringWidget>
 
       {/* 5. Closing This Month */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-amber-500/40 transition-all flex flex-col justify-between group">
+      <SpringWidget
+        delay={280}
+        className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between group"
+      >
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">
@@ -178,7 +194,7 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             </div>
           </div>
           <div className="font-mono text-xl sm:text-2xl font-extrabold text-amber-600 dark:text-amber-400 tracking-tight">
-            {formatINR(closingThisMonthValue)}
+            <SpringCounter value={closingThisMonthValue} isCurrency />
           </div>
         </div>
         <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
@@ -187,7 +203,7 @@ export const ExecutiveKPICards: React.FC<ExecutiveKPICardsProps> = ({ leads }) =
             {closingThisMonthLeads.length} deals targeted
           </span>
         </div>
-      </div>
+      </SpringWidget>
     </div>
   );
 };

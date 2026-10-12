@@ -28,6 +28,7 @@ import { PRESET_PROGRAMS, getProgramBadgeStyle } from "@/constants/programs";
 import { LEAD_SOURCES, getLeadSourceBadgeStyle } from "@/constants/leadSources";
 import { optimizeCompanyLogo } from "@/lib/companyLogoService";
 import { GoogleCalendarDatePicker } from "./GoogleCalendarDatePicker";
+import { SpringButton } from "./spring";
 
 interface AddLeadModalProps {
   isOpen: boolean;
@@ -768,46 +769,51 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
             {modalTab === "general" ? (
               <>
-                <button
+                <SpringButton
                   type="button"
+                  variant="ghost"
                   onClick={onClose}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400"
                 >
                   Cancel
-                </button>
+                </SpringButton>
                 <div className="flex items-center space-x-2">
-                  <button
+                  <SpringButton
                     type="button"
+                    variant="secondary"
                     onClick={() => setModalTab("programs")}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl flex items-center space-x-1.5 transition"
+                    className="flex items-center space-x-1.5"
                   >
                     <span>Next: Choose Program</span>
                     <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                  <button
+                  </SpringButton>
+                  <SpringButton
                     type="submit"
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-500/20 transition"
+                    variant="primary"
+                    className="shadow-md shadow-indigo-500/20"
                   >
                     Create Lead
-                  </button>
+                  </SpringButton>
                 </div>
               </>
             ) : (
               <>
-                <button
+                <SpringButton
                   type="button"
+                  variant="secondary"
                   onClick={() => setModalTab("general")}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl flex items-center space-x-1.5 transition"
+                  className="flex items-center space-x-1.5"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   <span>Back to Details</span>
-                </button>
-                <button
+                </SpringButton>
+                <SpringButton
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-500/20 transition"
+                  variant="primary"
+                  className="shadow-md shadow-indigo-500/20"
                 >
                   Confirm & Create Lead
-                </button>
+                </SpringButton>
               </>
             )}
           </div>

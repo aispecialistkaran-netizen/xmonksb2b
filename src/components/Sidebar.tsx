@@ -18,6 +18,7 @@ import {
   KeyRound,
   SendHorizontal,
   Receipt,
+  Truck,
   Sparkles,
   ChevronLeft,
   ChevronRight,
@@ -32,6 +33,7 @@ import {
 import { formatINR } from "@/lib/formatters";
 import { UserAccount } from "@/constants/users";
 import { ThemeToggle } from "./ThemeToggle";
+import { SpringButton } from "@/components/spring";
 
 export type NavTab =
   | "kanban"
@@ -42,6 +44,7 @@ export type NavTab =
   | "email"
   | "library"
   | "prospector"
+  | "delivery"
   | "billing"
   | "developer";
 
@@ -193,12 +196,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const operationsNavItems: NavItem[] = [
     {
+      id: "delivery",
+      label: "Delivery",
+      icon: Truck,
+      color: "text-indigo-600 dark:text-indigo-400",
+      activeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
+      hidden: false,
+    },
+    {
       id: "billing",
       label: "Billing",
       icon: Receipt,
       color: "text-emerald-600 dark:text-emerald-400",
       activeBg: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
-      badge: isAccounts ? "Active" : undefined,
+      hidden: true, // Hidden per user requirement
     },
     {
       id: "developer",
@@ -396,46 +407,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Quick Actions Strip */}
           {!isAccounts && (
             <div className="space-y-1.5">
-              <button
+              <SpringButton
+                variant="primary"
                 onClick={() => {
                   onOpenAddModal();
                   setIsMobileOpen(false);
                 }}
-                className={`w-full flex items-center justify-center space-x-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.01] active:scale-[0.99] ${
+                className={`w-full flex items-center justify-center space-x-2 py-2.5 shadow-md shadow-indigo-600/20 ${
                   isCollapsed ? "px-2" : "px-3"
                 }`}
                 title="Create New CRM Lead"
               >
                 <Plus className="w-4 h-4 stroke-[2.5] flex-shrink-0" />
                 {(!isCollapsed || isMobileOpen) && <span>Add Lead</span>}
-              </button>
+              </SpringButton>
 
               {(!isCollapsed || isMobileOpen) && (
                 <div className="grid grid-cols-2 gap-1.5 pt-1">
-                  <button
+                  <SpringButton
+                    variant="secondary"
+                    size="sm"
                     onClick={() => {
                       onOpenBulkModal();
                       setIsMobileOpen(false);
                     }}
-                    className="flex items-center justify-center space-x-1.5 py-1.5 px-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold text-[11px] rounded-lg border border-purple-500/20 transition"
+                    className="flex items-center justify-center space-x-1.5 py-1.5 px-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold text-[11px] border border-purple-500/20"
                     title="Import leads from CSV"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5" />
                     <span>Import</span>
-                  </button>
+                  </SpringButton>
 
                   {isAdmin && onExportLeads && (
-                    <button
+                    <SpringButton
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         onExportLeads();
                         setIsMobileOpen(false);
                       }}
-                      className="flex items-center justify-center space-x-1.5 py-1.5 px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-[11px] rounded-lg border border-emerald-500/20 transition"
+                      className="flex items-center justify-center space-x-1.5 py-1.5 px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-[11px] border border-emerald-500/20"
                       title="Export leads to CSV"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Export</span>
-                    </button>
+                    </SpringButton>
                   )}
                 </div>
               )}

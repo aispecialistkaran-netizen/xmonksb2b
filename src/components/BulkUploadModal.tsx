@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { UserAccount } from "@/constants/users";
+import { SpringButton } from "./spring";
 
 interface ParsedCSVLead {
   companyName: string;
@@ -442,13 +443,15 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
               </p>
             </div>
 
-            <button
+            <SpringButton
+              type="button"
+              variant="primary"
               onClick={handleDownloadSampleCSV}
-              className="flex items-center space-x-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow transition"
+              className="flex items-center space-x-2"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Download Sample CSV Template</span>
-            </button>
+            </SpringButton>
           </div>
 
           {/* File Upload Drag & Drop Area */}
@@ -601,27 +604,27 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
 
         {/* Footer Actions */}
         <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
-          <button
+          <SpringButton
             type="button"
+            variant="ghost"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl transition"
+            className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400"
           >
             Cancel
-          </button>
+          </SpringButton>
 
-          <button
+          <SpringButton
             type="button"
+            variant="custom"
+            isLoading={isProcessing}
+            loadingText="Importing Leads..."
             disabled={parsedLeads.length === 0 || isProcessing}
             onClick={handleImportSubmit}
-            className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-500/20 transition flex items-center space-x-2"
+            className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-500/20 flex items-center space-x-2"
           >
             <UploadCloud className="w-4 h-4" />
-            <span>
-              {isProcessing
-                ? "Importing Leads..."
-                : `Confirm Import (${parsedLeads.length} Leads)`}
-            </span>
-          </button>
+            <span>Confirm Import ({parsedLeads.length} Leads)</span>
+          </SpringButton>
         </div>
       </div>
     </div>

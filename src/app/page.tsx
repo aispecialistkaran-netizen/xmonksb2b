@@ -42,6 +42,8 @@ import { DeveloperTab } from "@/components/DeveloperTab";
 import { OutreachTab } from "@/components/OutreachTab";
 import { TouchpointHistoryTab } from "@/components/TouchpointHistoryTab";
 import { BillingTab } from "@/components/BillingTab";
+import { DeliveryTab } from "@/components/DeliveryTab";
+import { SpringPortalLoader } from "@/components/spring";
 import { ProspectorTab } from "@/components/ProspectorTab";
 import { LibraryTab } from "@/components/LibraryTab";
 import { EmailAttachment } from "@/constants/emailTemplates";
@@ -69,7 +71,8 @@ import {
   getLocalPreferences,
 } from "@/lib/preferencesService";
 import { migrateLeadToBilling } from "@/lib/billingService";
-import { Receipt, CheckCircle2, ArrowRight, X, Bell, ShieldAlert, MessageSquare } from "lucide-react";
+import { createDeliveryRecordFromLead } from "@/lib/deliveryService";
+import { Receipt, CheckCircle2, ArrowRight, X, Bell, ShieldAlert, MessageSquare, Truck } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useRef, useSyncExternalStore } from "react";
 
@@ -128,7 +131,7 @@ export default function Home() {
           u?.username?.toLowerCase() === "accounts" ||
           u?.role?.toLowerCase().includes("accounts")
         ) {
-          return "billing";
+          return "delivery";
         }
         const userIsAdmin = Boolean(
           u?.username?.toLowerCase() === "admin" || u?.role?.toLowerCase().includes("admin")
@@ -136,7 +139,7 @@ export default function Home() {
         const prefs = getLocalPreferences(u.username);
         if (
           prefs?.activeTab &&
-          ["kanban", "table", "outreach", "analytics", "email", "library", "prospector", "billing", "developer"].includes(prefs.activeTab)
+          ["kanban", "table", "outreach", "analytics", "email", "library", "prospector", "delivery", "developer"].includes(prefs.activeTab)
         ) {
           if (prefs.activeTab === "developer" && !userIsAdmin) {
             return "kanban";
@@ -168,7 +171,7 @@ export default function Home() {
       user.username.toLowerCase() === "accounts" ||
       user.role.toLowerCase().includes("accounts")
     ) {
-      setActiveTab("billing");
+      setActiveTab("delivery");
     }
   };
 
@@ -238,16 +241,16 @@ export default function Home() {
     };
   }, []);
 
-  // Ensure accounts user always stays on the billing tab
+  // Ensure accounts user always stays on the delivery tab
   useEffect(() => {
-    if (isAccounts && activeTab !== "billing") {
-      setActiveTab("billing");
+    if (isAccounts && activeTab !== "delivery") {
+      setActiveTab("delivery");
     }
   }, [isAccounts, activeTab]);
 
   // Handlers to synchronize UI state to Firestore
   const handleTabChange = (tab: NavTab) => {
-    if (isAccounts && tab !== "billing") {
+    if (isAccounts && tab !== "delivery") {
       return;
     }
     if (tab === "developer" && !isAdmin) {
@@ -897,16 +900,16 @@ export default function Home() {
     return unreadAdminDirectives.find((d) => !dismissedDirectiveIds.includes(d.comment.id)) || null;
   }, [unreadAdminDirectives, dismissedDirectiveIds]);
 
-  // Move / Duplicate Closure Lead to Billing
-  const [billingToast, setBillingToast] = useState<{
+  // Send Closure Lead to Delivery
+  const [deliveryToast, setDeliveryToast] = useState<{
     show: boolean;
     companyName: string;
     leadId: string;
   } | null>(null);
 
-  const handleMoveLeadToBilling = (lead: Lead) => {
-    // 1. Duplicate card into billing section
-    migrateLeadToBilling(lead);
+  const handleSendToDelivery = async (lead: Lead) => {
+    // 1. Create/link record in delivery pipeline
+    await createDeliveryRecordFromLead(lead, "delivery", currentUser?.name || "Delivery Lead");
 
     // 2. Confetti celebration
     try {
@@ -918,15 +921,18 @@ export default function Home() {
     } catch {}
 
     // 3. Show notification toast
-    setBillingToast({
+    setDeliveryToast({
       show: true,
       companyName: lead.companyName,
       leadId: lead.id,
     });
   };
 
+  // Alias for backward compatibility
+  const handleMoveLeadToBilling = handleSendToDelivery;
+
   if (!isClient) {
-    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-xs">Loading Portal...</div>;
+    return <SpringPortalLoader text="Initializing xMonks B2B Workspace..." />;
   }
 
   if (!isAuthenticated) {
@@ -1110,6 +1116,7 @@ export default function Home() {
             onUpdateStage={handleUpdateStage}
             onDeleteLead={handleDeleteLead}
             onMoveToBilling={handleMoveLeadToBilling}
+            onSendToDelivery={handleSendToDelivery}
           />
         )}
 
@@ -1124,6 +1131,7 @@ export default function Home() {
             isAdmin={isAdmin}
             onExportLeads={handleExportLeads}
             onMoveToBilling={handleMoveLeadToBilling}
+            onSendToDelivery={handleSendToDelivery}
           />
         )}
 
@@ -1218,8 +1226,8 @@ export default function Home() {
           />
         )}
 
-        {activeTab === "billing" && (
-          <BillingTab
+        {activeTab === "delivery" && (
+          <DeliveryTab
             leads={userScopedLeads}
             allLeads={leads}
             currentUser={currentUser}
@@ -1232,35 +1240,35 @@ export default function Home() {
         )}
       </main>
 
-      {/* Floating Notification Toast when Closure Card is moved to Billing */}
-      {billingToast?.show && (
-        <div className="fixed bottom-6 right-6 z-50 p-4 bg-slate-900/95 text-white rounded-2xl shadow-2xl border border-emerald-500/40 backdrop-blur-md flex items-center space-x-4 animate-slideUp">
-          <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
-            <Receipt className="w-6 h-6" />
+      {/* Floating Notification Toast when Closure Card is sent to Delivery */}
+      {deliveryToast?.show && (
+        <div className="fixed bottom-6 right-6 z-50 p-4 bg-slate-900/95 text-white rounded-2xl shadow-2xl border border-indigo-500/40 backdrop-blur-md flex items-center space-x-4 animate-slideUp">
+          <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+            <Truck className="w-6 h-6" />
           </div>
           <div>
             <h4 className="text-sm font-black flex items-center space-x-1.5 text-white">
-              <span>Duplicated to Billing</span>
+              <span>Sent to Delivery</span>
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             </h4>
             <p className="text-xs text-slate-300 mt-0.5">
-              <span className="font-bold text-emerald-300">{billingToast.companyName}</span> is now active in Billing for Accounts to manage payments.
+              <span className="font-bold text-indigo-300">{deliveryToast.companyName}</span> is now active in Delivery to configure Tenure & track milestones.
             </p>
           </div>
           <div className="flex items-center space-x-2 pl-3 border-l border-slate-800">
             <button
               onClick={() => {
-                setBillingToast(null);
-                handleTabChange("billing");
+                setDeliveryToast(null);
+                handleTabChange("delivery");
               }}
-              className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black rounded-xl transition shadow-md flex items-center space-x-1"
+              className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-black rounded-xl transition shadow-md flex items-center space-x-1 cursor-pointer"
             >
-              <span>Go to Billing</span>
+              <span>Go to Delivery</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => setBillingToast(null)}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
+              onClick={() => setDeliveryToast(null)}
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1272,7 +1280,7 @@ export default function Home() {
       {activeFloatingDirective && (
         <div
           className={`fixed ${
-            billingToast?.show ? "bottom-32" : "bottom-6"
+            deliveryToast?.show ? "bottom-32" : "bottom-6"
           } right-6 z-50 max-w-md w-full p-4 bg-slate-900/95 dark:bg-slate-900/95 text-white rounded-2xl shadow-2xl border border-amber-500/50 backdrop-blur-md flex items-start space-x-3.5 animate-slideUp`}
         >
           <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30 shrink-0 mt-0.5">
@@ -1368,6 +1376,7 @@ export default function Home() {
           onEditContact={handleEditLeadContact}
           onSetPrimaryContact={handleSetLeadPrimaryContact}
           onMoveToBilling={handleMoveLeadToBilling}
+          onSendToDelivery={handleSendToDelivery}
         />
       )}
 

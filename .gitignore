@@ -42,3 +42,6 @@ next-env.d.ts
 
 # codegraph
 .codegraph/
+
+# local backups
+deleted_leads_backup.json

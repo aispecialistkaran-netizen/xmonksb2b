@@ -34,6 +34,7 @@ import {
   Image as ImageIcon,
   Link2,
   Receipt,
+  Truck,
   FileSpreadsheet,
   Plus,
   Files,
@@ -48,6 +49,7 @@ import confetti from "canvas-confetti";
 import { formatINR, formatClosureMonth } from "@/lib/formatters";
 import { PRESET_PROGRAMS, getProgramBadgeStyle } from "@/constants/programs";
 import { LEAD_SOURCES, getLeadSourceBadgeStyle } from "@/constants/leadSources";
+import { SpringButton } from "@/components/spring";
 import { ApproachNote, FinancialDocument, ContactPerson } from "@/types/lead";
 import {
   uploadApproachNoteToFirebase,
@@ -117,6 +119,7 @@ interface LeadDetailModalProps {
   onUpdateCompanyLogo?: (leadId: string, logoUrl: string) => void;
   onRemoveCompanyLogo?: (leadId: string) => void;
   onMoveToBilling?: (lead: Lead) => void;
+  onSendToDelivery?: (lead: Lead) => void;
 }
 
 export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
@@ -144,6 +147,7 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
   onUpdateCompanyLogo,
   onRemoveCompanyLogo,
   onMoveToBilling,
+  onSendToDelivery,
 }) => {
   const [newNoteText, setNewNoteText] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -908,28 +912,30 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
-            {lead.stage === "closure" && onMoveToBilling && (
-              <button
-                type="button"
-                onClick={() => onMoveToBilling(lead)}
-                className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white shadow-md shadow-emerald-500/20 transition transform hover:scale-[1.02]"
-                title="Duplicate this deal into Billing for the Accounts department"
+            {lead.stage === "closure" && (onSendToDelivery || onMoveToBilling) && (
+              <SpringButton
+                variant="gradient"
+                size="sm"
+                onClick={() => (onSendToDelivery || onMoveToBilling)?.(lead)}
+                className="flex items-center space-x-1.5 shadow-md shadow-indigo-500/20"
+                title="Send this won deal to Delivery pipeline to configure Tenure & milestones"
               >
-                <Receipt className="w-3.5 h-3.5 text-emerald-200" />
-                <span>Move to Billing (Accounts)</span>
-              </button>
+                <Truck className="w-3.5 h-3.5 text-indigo-200" />
+                <span>Send to Delivery</span>
+              </SpringButton>
             )}
 
             {onDeleteLead && (
-              <button
-                type="button"
+              <SpringButton
+                variant="ghost"
+                size="sm"
                 onClick={() => setShowDeleteConfirm(!showDeleteConfirm)}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 border border-rose-500/20 transition"
+                className="flex items-center space-x-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 border border-rose-500/20"
                 title="Delete this B2B Lead"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Delete Lead</span>
-              </button>
+              </SpringButton>
             )}
 
             <button

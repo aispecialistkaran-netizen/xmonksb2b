@@ -22,12 +22,14 @@ import {
   GraduationCap,
   Compass,
   Receipt,
+  Truck,
   ArrowRight,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 
 import { formatINR, formatClosureMonth } from "@/lib/formatters";
 import { getLeadSourceBadgeStyle } from "@/constants/leadSources";
+import { SpringButton, SpringCard } from "@/components/spring";
 
 interface KanbanBoardProps {
   leads: Lead[];
@@ -35,6 +37,7 @@ interface KanbanBoardProps {
   onUpdateStage: (leadId: string, newStage: LeadStage, notes?: string) => void;
   onDeleteLead?: (leadId: string) => void;
   onMoveToBilling?: (lead: Lead) => void;
+  onSendToDelivery?: (lead: Lead) => void;
 }
 
 export const KanbanBoard: React.FC<KanbanBoardProps> = ({
@@ -43,6 +46,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   onUpdateStage,
   onDeleteLead,
   onMoveToBilling,
+  onSendToDelivery,
 }) => {
   const getIcon = (iconName: string) => {
     switch (iconName) {
@@ -156,10 +160,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     const latestLog = lead.journeyLogs?.[0];
 
                     return (
-                      <div
+                      <SpringCard
                         key={lead.id}
                         onClick={() => onSelectLead(lead)}
-                        className="group relative bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-500/40 dark:hover:border-indigo-500/40 transition-all cursor-pointer"
+                        className="group relative bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-sm hover:border-indigo-500/40 dark:hover:border-indigo-500/40 transition-colors cursor-pointer"
                       >
                         {/* Top Industry & Tag */}
                         <div className="flex items-center justify-between gap-2 mb-2">
@@ -343,25 +347,26 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           </div>
                         </div>
 
-                        {/* Move to Billing (Accounts) Option for Closure Stage */}
+                        {/* Send to Delivery Option for Closure Stage */}
                         {lead.stage === "closure" && (
                           <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                            <button
-                              type="button"
+                            <SpringButton
+                              variant="gradient"
+                              size="md"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onMoveToBilling?.(lead);
+                                (onSendToDelivery || onMoveToBilling)?.(lead);
                               }}
-                              className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white text-xs font-black flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-500/25 transition transform hover:scale-[1.02] active:scale-[0.98]"
-                              title="Duplicate client card into Billing section for Accounts department to handle payments"
+                              className="w-full flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-500/25"
+                              title="Send this won deal to Delivery pipeline to configure Tenure & track milestones"
                             >
-                              <Receipt className="w-3.5 h-3.5 text-emerald-200" />
-                              <span>Move to Billing (Accounts)</span>
-                              <ArrowRight className="w-3.5 h-3.5 text-emerald-200" />
-                            </button>
+                              <Truck className="w-3.5 h-3.5 text-indigo-200" />
+                              <span>Send to Delivery</span>
+                              <ArrowRight className="w-3.5 h-3.5 text-indigo-200" />
+                            </SpringButton>
                           </div>
                         )}
-                      </div>
+                      </SpringCard>
                     );
                   })
                 )}

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 
 import { formatINR } from "@/lib/formatters";
+import { SpringWidget } from "./spring";
 
 // Analytics Subcomponents
 import { ExecutiveKPICards } from "./analytics/ExecutiveKPICards";
@@ -421,7 +422,7 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({
       {/* Top Core Charts Grid: Stage Revenue & Stage Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* Unweighted vs. Weighted Revenue by Stage (Bar Chart) */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
+        <SpringWidget delay={150} enableTilt={false} className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
               <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center space-x-2">
@@ -476,10 +477,10 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </SpringWidget>
 
         {/* Stage Distribution: Interactive Donut, Stage Filters, Client List & Amounts */}
-        <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col">
+        <SpringWidget delay={250} enableTilt={false} className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex flex-col">
           {/* Header with Title and Mode Switcher */}
           <div className="flex items-start justify-between gap-2 mb-3">
             <div>
@@ -829,7 +830,7 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({
               })}
             </div>
           )}
-        </div>
+        </SpringWidget>
       </div>
 
       {/* 2. Monthly Revenue Forecast & Closure Timeline */}

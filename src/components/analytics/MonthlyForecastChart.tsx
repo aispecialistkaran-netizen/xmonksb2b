@@ -15,6 +15,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Calendar, TrendingUp, Sparkles, Building2, ArrowUpRight } from "lucide-react";
+import { SpringWidget } from "../spring";
 
 interface MonthlyForecastChartProps {
   leads: Lead[];
@@ -174,7 +175,7 @@ export const MonthlyForecastChart: React.FC<MonthlyForecastChartProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+    <SpringWidget delay={300} enableTilt={false} className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between">
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
@@ -269,6 +270,6 @@ export const MonthlyForecastChart: React.FC<MonthlyForecastChartProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </SpringWidget>
   );
 };
