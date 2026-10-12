@@ -2761,11 +2761,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             <div className="flex items-center space-x-1.5">
                               <select
                                 value={m.paymentStatus}
-                                onChange={(e) =>
-                                  handleUpdateMilestone(m.id, {
-                                    paymentStatus: e.target.value as TranchePaymentStatus,
-                                  })
-                                }
+                                onChange={(e) => {
+                                  const newStatus = e.target.value as TranchePaymentStatus;
+                                  const updates: Partial<DeliveryMilestoneTranche> = {
+                                    paymentStatus: newStatus,
+                                  };
+                                  if (newStatus === "received" && !m.paymentReceivedDate) {
+                                    updates.paymentReceivedDate = new Date().toISOString().split("T")[0];
+                                  }
+                                  handleUpdateMilestone(m.id, updates);
+                                }}
                                 className={`px-2 py-1 text-xs font-bold rounded-lg border ${
                                   m.paymentStatus === "received"
                                     ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
@@ -2967,11 +2972,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             <div className="flex items-center space-x-1.5">
                               <select
                                 value={t.paymentStatus}
-                                onChange={(e) =>
-                                  handleUpdatePaymentTerm(t.id, {
-                                    paymentStatus: e.target.value as TranchePaymentStatus,
-                                  })
-                                }
+                                onChange={(e) => {
+                                  const newStatus = e.target.value as TranchePaymentStatus;
+                                  const updates: Partial<PaymentTermTranche> = {
+                                    paymentStatus: newStatus,
+                                  };
+                                  if (newStatus === "received" && !t.paymentReceivedDate) {
+                                    updates.paymentReceivedDate = new Date().toISOString().split("T")[0];
+                                  }
+                                  handleUpdatePaymentTerm(t.id, updates);
+                                }}
                                 className={`px-2 py-1 text-xs font-bold rounded-lg border ${
                                   t.paymentStatus === "received"
                                     ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
@@ -3056,6 +3066,446 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 </div>
               </div>
             )}
+
+            {/* ========================================================= */}
+            {/* SUB-SECTION C: PAYMENTS RECEIVED LEDGER (PROJECT-SPECIFIC) */}
+            {/* Tabular table of all received payments, including date & amount */}
+            {/* ========================================================= */}
+            {(() => {
+              // Extract all received milestone tranches
+              const receivedMilestones = (selectedRecord.deliveryMilestones || [])
+                .filter((m) => m.paymentStatus === "received")
+                .map((m) => ({
+                  id: m.id,
+                  title: m.milestoneTitle,
+                  type: "milestone" as const,
+                  typeBadge: "Milestone",
+                  amount: m.amount || 0,
+                  percent: m.paymentPercent || 0,
+                  dateReceived: m.paymentReceivedDate || m.completionDate || m.targetDate || "",
+                  invoiceNumber: m.invoiceNumber,
+                  invoiceDate: m.invoiceDate,
+                  utrNumber: m.utrNumber,
+                  bankReference: m.bankReference,
+                  rawItem: m,
+                }));
+
+              // Extract all received payment terms tranches
+              const receivedTerms = (selectedRecord.paymentTerms || [])
+                .filter((t) => t.paymentStatus === "received")
+                .map((t) => ({
+                  id: t.id,
+                  title: t.termLabel,
+                  type: "payment_term" as const,
+                  typeBadge: t.isAdvance ? "Advance Term" : "Scheduled Term",
+                  amount: t.amount || 0,
+                  percent: t.paymentPercent || 0,
+                  dateReceived: t.paymentReceivedDate || t.dueDate || "",
+                  invoiceNumber: t.invoiceNumber,
+                  invoiceDate: t.invoiceDate,
+                  utrNumber: t.utrNumber,
+                  bankReference: t.bankReference,
+                  rawItem: t,
+                }));
+
+              // Scoped to the active project tenure model
+              const receivedPayments =
+                selectedRecord.tenureType === "delivery"
+                  ? receivedMilestones
+                  : selectedRecord.tenureType === "payment_terms"
+                  ? receivedTerms
+                  : [...receivedMilestones, ...receivedTerms];
+
+              const totalReceived = receivedPayments.reduce((sum, p) => sum + p.amount, 0);
+              const totalPercent = receivedPayments.reduce((sum, p) => sum + p.percent, 0);
+              const pendingAmount = Math.max(0, (selectedRecord.dealValue || 0) - totalReceived);
+              const realizationRate =
+                selectedRecord.dealValue > 0
+                  ? Math.round((totalReceived / selectedRecord.dealValue) * 100)
+                  : 0;
+
+              // Extract unreceived tranches so user can easily 1-click mark as received
+              const unreceivedMilestones = (selectedRecord.deliveryMilestones || []).filter(
+                (m) => m.paymentStatus !== "received"
+              );
+              const unreceivedTerms = (selectedRecord.paymentTerms || []).filter(
+                (t) => t.paymentStatus !== "received"
+              );
+
+              const handleExportReceiptsCSV = () => {
+                const headers = [
+                  "Client / Project",
+                  "Tranche Description",
+                  "Category",
+                  "Date Received",
+                  "Amount (INR)",
+                  "Share of Deal (%)",
+                  "UTR Number",
+                  "Bank Reference",
+                  "Invoice Number",
+                ];
+                const rows = receivedPayments.map((p) => [
+                  `"${selectedRecord.companyName.replace(/"/g, '""')}"`,
+                  `"${p.title.replace(/"/g, '""')}"`,
+                  `"${p.typeBadge}"`,
+                  `"${p.dateReceived || "N/A"}"`,
+                  p.amount,
+                  `${p.percent}%`,
+                  `"${(p.utrNumber || "").replace(/"/g, '""')}"`,
+                  `"${(p.bankReference || "").replace(/"/g, '""')}"`,
+                  `"${(p.invoiceNumber || "").replace(/"/g, '""')}"`,
+                ]);
+                const csvContent =
+                  "data:text/csv;charset=utf-8," +
+                  [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute(
+                  "download",
+                  `Payment_Receipts_${selectedRecord.companyName.replace(/\s+/g, "_")}.csv`
+                );
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              };
+
+              return (
+                <div className="mt-8 bg-white dark:bg-slate-900 border-2 border-emerald-300/80 dark:border-emerald-800/80 rounded-2xl p-5 sm:p-6 space-y-5 shadow-sm">
+                  {/* Ledger Header & Quick Financial Summary */}
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="p-2 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 rounded-xl">
+                          <Receipt className="w-5 h-5" />
+                        </span>
+                        <h4 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                          <span>Payments Received & Realization Ledger</span>
+                        </h4>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                          {realizationRate}% Realized
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Tabular record of cleared payments for <strong className="text-slate-800 dark:text-slate-200">{selectedRecord.companyName}</strong>, detailing transaction dates, received amounts (₹), UTR bank references, and tax invoices.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {receivedPayments.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleExportReceiptsCSV}
+                          className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+                          title="Download payment receipts as CSV"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Export Receipts (CSV)</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Financial Metrics Strip for this Project */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Total Project Value
+                      </span>
+                      <div className="text-base font-black text-slate-900 dark:text-white mt-0.5">
+                        {formatINR(selectedRecord.dealValue)}
+                      </div>
+                      <span className="text-[10px] text-slate-500">Contracted deal size</span>
+                    </div>
+
+                    <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-900">
+                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
+                        Total Amount Received
+                      </span>
+                      <div className="text-base font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                        {formatINR(totalReceived)}
+                      </div>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                        {totalPercent}% of project deal
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900">
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
+                        Pending Receivable
+                      </span>
+                      <div className="text-base font-black text-amber-700 dark:text-amber-300 mt-0.5">
+                        {formatINR(pendingAmount)}
+                      </div>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                        {Math.max(0, 100 - totalPercent)}% remaining
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-200 dark:border-indigo-900">
+                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
+                        Cleared Payments
+                      </span>
+                      <div className="text-base font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
+                        {receivedPayments.length} Receipts
+                      </div>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                        Status: {totalPercent >= 100 ? "Fully Paid" : "In Progress"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Tabular Table of Received Payments */}
+                  {receivedPayments.length > 0 ? (
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-bold">
+                            <th className="py-3 px-3.5 w-12 text-center">#</th>
+                            <th className="py-3 px-3.5">Tranche / Milestone</th>
+                            <th className="py-3 px-3.5">Category</th>
+                            <th className="py-3 px-3.5 min-w-[170px]">Date Received</th>
+                            <th className="py-3 px-3.5">Amount (₹ INR)</th>
+                            <th className="py-3 px-3.5 text-center">Share</th>
+                            <th className="py-3 px-3.5">UTR / Bank Reference</th>
+                            <th className="py-3 px-3.5">Invoice Ref</th>
+                            <th className="py-3 px-3.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 bg-white dark:bg-slate-900">
+                          {receivedPayments.map((p, idx) => (
+                            <tr
+                              key={`${p.type}-${p.id}`}
+                              className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition group"
+                            >
+                              {/* Serial # */}
+                              <td className="py-3 px-3.5 text-center">
+                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-black text-[11px]">
+                                  {idx + 1}
+                                </span>
+                              </td>
+
+                              {/* Tranche / Milestone Title */}
+                              <td className="py-3 px-3.5">
+                                <div className="font-bold text-slate-900 dark:text-white text-xs">
+                                  {p.title}
+                                </div>
+                                <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center space-x-1 mt-0.5">
+                                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                  <span>Payment Cleared & Credited</span>
+                                </div>
+                              </td>
+
+                              {/* Category Badge */}
+                              <td className="py-3 px-3.5">
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                    p.type === "milestone"
+                                      ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                                      : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                                  }`}
+                                >
+                                  {p.typeBadge}
+                                </span>
+                              </td>
+
+                              {/* Date Received (Editable inline) */}
+                              <td className="py-3 px-3.5">
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="date"
+                                    value={p.dateReceived ? p.dateReceived.split("T")[0] : ""}
+                                    onChange={(e) => {
+                                      const newDate = e.target.value;
+                                      if (p.type === "milestone") {
+                                        handleUpdateMilestone(p.id, { paymentReceivedDate: newDate });
+                                      } else {
+                                        handleUpdatePaymentTerm(p.id, { paymentReceivedDate: newDate });
+                                      }
+                                    }}
+                                    className="px-2 py-1 text-xs font-semibold rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                                    title="Edit payment received date"
+                                  />
+                                </div>
+                              </td>
+
+                              {/* Amount (₹ INR) */}
+                              <td className="py-3 px-3.5">
+                                <span className="font-black text-emerald-700 dark:text-emerald-300 text-sm whitespace-nowrap">
+                                  {formatINR(p.amount)}
+                                </span>
+                              </td>
+
+                              {/* Share % */}
+                              <td className="py-3 px-3.5 text-center">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  {p.percent}%
+                                </span>
+                              </td>
+
+                              {/* UTR / Bank Reference */}
+                              <td className="py-3 px-3.5">
+                                {p.utrNumber ? (
+                                  <div className="space-y-0.5">
+                                    <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 inline-block">
+                                      UTR: {p.utrNumber}
+                                    </span>
+                                    {p.bankReference && (
+                                      <div className="text-[10px] text-slate-400">
+                                        {p.bankReference}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setInvoiceModalState({
+                                        isOpen: true,
+                                        record: selectedRecord,
+                                        item: p.rawItem,
+                                        itemType: p.type,
+                                      })
+                                    }
+                                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline flex items-center space-x-1 font-semibold cursor-pointer"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Add UTR No.</span>
+                                  </button>
+                                )}
+                              </td>
+
+                              {/* Invoice Ref */}
+                              <td className="py-3 px-3.5">
+                                {p.invoiceNumber ? (
+                                  <span className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                                    {p.invoiceNumber}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">—</span>
+                                )}
+                              </td>
+
+                              {/* Actions */}
+                              <td className="py-3 px-3.5 text-right">
+                                <div className="flex items-center justify-end space-x-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setInvoiceModalState({
+                                        isOpen: true,
+                                        record: selectedRecord,
+                                        item: p.rawItem,
+                                        itemType: p.type,
+                                      })
+                                    }
+                                    className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-lg transition cursor-pointer"
+                                    title="View / Edit Invoice & Bank UTR Proof"
+                                  >
+                                    <Receipt className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (p.type === "milestone") {
+                                        handleUpdateMilestone(p.id, { paymentStatus: "pending" });
+                                      } else {
+                                        handleUpdatePaymentTerm(p.id, { paymentStatus: "pending" });
+                                      }
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition cursor-pointer"
+                                    title="Unmark from received (Move back to Pending)"
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+
+                        {/* Total Footer Row */}
+                        <tfoot>
+                          <tr className="bg-slate-50/90 dark:bg-slate-800/90 border-t-2 border-slate-200 dark:border-slate-700 font-black text-xs text-slate-900 dark:text-white">
+                            <td colSpan={4} className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] text-slate-500">
+                              Total Payments Realized:
+                            </td>
+                            <td className="py-3 px-3.5 text-emerald-700 dark:text-emerald-300 font-black text-sm whitespace-nowrap">
+                              {formatINR(totalReceived)}
+                            </td>
+                            <td className="py-3 px-3.5 text-center text-emerald-600 dark:text-emerald-400 font-black">
+                              {totalPercent}%
+                            </td>
+                            <td colSpan={3} className="py-3 px-3.5 text-slate-500 text-[11px] font-medium">
+                              Pending Balance: <strong className="text-amber-600 dark:text-amber-400">{formatINR(pendingAmount)}</strong>
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    /* Clean Empty State */
+                    <div className="p-6 bg-slate-50/80 dark:bg-slate-800/40 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl text-center space-y-3">
+                      <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200 dark:border-emerald-800">
+                        <Receipt className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h5 className="text-sm font-black text-slate-800 dark:text-slate-200">
+                          No Payments Recorded as Received Yet
+                        </h5>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                          When payments are received for <strong className="text-slate-700 dark:text-slate-300">{selectedRecord.companyName}</strong>, mark any tranche as &quot;Received&quot; above or click below to record receipt date and amount immediately.
+                        </p>
+                      </div>
+
+                      {/* Quick record buttons for unreceived tranches */}
+                      {(unreceivedMilestones.length > 0 || unreceivedTerms.length > 0) && (
+                        <div className="pt-2">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                            Quick Record Payment:
+                          </span>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            {unreceivedMilestones.slice(0, 3).map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateMilestone(m.id, {
+                                    paymentStatus: "received",
+                                    paymentReceivedDate: new Date().toISOString().split("T")[0],
+                                  })
+                                }
+                                className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Mark &quot;{m.milestoneTitle}&quot; Received ({formatINR(m.amount)})</span>
+                              </button>
+                            ))}
+                            {unreceivedTerms.slice(0, 3).map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() =>
+                                  handleUpdatePaymentTerm(t.id, {
+                                    paymentStatus: "received",
+                                    paymentReceivedDate: new Date().toISOString().split("T")[0],
+                                  })
+                                }
+                                className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:hover:bg-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-800 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Mark &quot;{t.termLabel}&quot; Received ({formatINR(t.amount)})</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
