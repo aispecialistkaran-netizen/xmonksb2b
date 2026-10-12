@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Truck,
   PackageCheck,
@@ -25,10 +25,38 @@ import {
   ShieldCheck,
   Check,
   ChevronDown,
+  Mail,
+  Phone,
+  MapPin,
+  Briefcase,
+  Paperclip,
+  Download,
+  History,
+  Sparkles,
+  FolderOpen,
+  FileCheck,
+  Eye,
+  MessageSquare,
+  ArrowUpRight,
+  Tag,
+  BarChart3,
+  PieChart,
+  Filter,
+  Wallet,
+  CalendarDays,
+  UserCheck,
+  ArrowUpDown,
+  CreditCard,
+  Layers,
+  ChevronUp,
+  Lock,
 } from "lucide-react";
-import { formatINR } from "@/lib/formatters";
-import { UserAccount } from "@/constants/users";
-import { Lead } from "@/types/lead";
+import { formatINR, formatClosureMonth, getDateComponents } from "@/lib/formatters";
+import { UserAccount, getUserProfile, VALID_USERS, isSameOwner, getCanonicalOwnerName } from "@/constants/users";
+import { Lead, ApproachNote, FinancialDocument, ContactPerson, JourneyLog } from "@/types/lead";
+import { getProgramBadgeStyle } from "@/constants/programs";
+import { getLeadSourceBadgeStyle } from "@/constants/leadSources";
+import { STAGES } from "@/constants/stages";
 import {
   DeliveryRecord,
   DeliveryMilestoneTranche,
@@ -54,6 +82,7 @@ interface DeliveryTabProps {
   allLeads: Lead[];
   currentUser?: UserAccount | null;
   isAdmin: boolean;
+  onSelectLead?: (lead: Lead) => void;
 }
 
 export const DeliveryTab: React.FC<DeliveryTabProps> = ({
@@ -61,15 +90,24 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   allLeads,
   currentUser,
   isAdmin,
+  onSelectLead,
 }) => {
   const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [projectSubTab, setProjectSubTab] = useState<"tenure" | "pipeline_data">("tenure");
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTenureFilter, setSelectedTenureFilter] = useState<string>("all");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("all");
+  const [selectedOwnerFilter, setSelectedOwnerFilter] = useState<string>("all");
+
+  // Executive Header Analytics Controls
+  const [headerAnalyticsTab, setHeaderAnalyticsTab] = useState<
+    "owner_matrix" | "month_wise" | "payment_insights"
+  >("owner_matrix");
+  const [isAnalyticsExpanded, setIsAnalyticsExpanded] = useState<boolean>(true);
 
   // Modals & Drawers
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -84,6 +122,24 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     tenureType: "delivery" as TenureType,
   });
 
+  // Helper to compute payment realization for any record
+  const getRecordFinancials = (r: DeliveryRecord) => {
+    let received = 0;
+    if (r.tenureType === "delivery") {
+      (r.deliveryMilestones || []).forEach((m) => {
+        if (m.paymentStatus === "received") received += m.amount || 0;
+      });
+    } else {
+      (r.paymentTerms || []).forEach((t) => {
+        if (t.paymentStatus === "received") received += t.amount || 0;
+      });
+    }
+    const total = r.dealValue || 0;
+    const remaining = Math.max(0, total - received);
+    const realizationRate = total > 0 ? (received / total) * 100 : 0;
+    return { total, received, remaining, realizationRate };
+  };
+
   // Subscribe to real-time Delivery records
   useEffect(() => {
     const unsubscribe = subscribeToDeliveryRecords((records, syncing) => {
@@ -93,25 +149,137 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // Filter won closure leads from pipeline that can be imported to Delivery
-  const closureLeads = useMemo(() => {
-    return allLeads.filter((l) => l.stage === "closure");
-  }, [allLeads]);
+  // Helper to determine if a record belongs to the current user (Client Partner)
+  const isRecordOwnedByUser = useCallback(
+    (r: DeliveryRecord, user: UserAccount): boolean => {
+      if (!user) return false;
+      const uName = user.name || "";
+      const uUser = user.username || "";
 
-  // Record currently selected for viewing/editing
+      // 1. Direct match on clientPartner
+      if (r.clientPartner) {
+        if (isSameOwner(r.clientPartner, uName) || isSameOwner(r.clientPartner, uUser)) {
+          return true;
+        }
+      }
+
+      // 2. Match via matching lead in pipeline
+      const rowMatchingLead =
+        allLeads.find((l) => l.id === r.leadId) ||
+        leads.find((l) => l.id === r.leadId) ||
+        allLeads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        ) ||
+        leads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        );
+
+      if (rowMatchingLead?.owner) {
+        if (isSameOwner(rowMatchingLead.owner, uName) || isSameOwner(rowMatchingLead.owner, uUser)) {
+          return true;
+        }
+      }
+
+      // 3. Fallback check on deliveryLogs author
+      if (Array.isArray(r.deliveryLogs) && r.deliveryLogs.length > 0) {
+        const firstLog = r.deliveryLogs[0];
+        if (
+          firstLog?.author &&
+          (isSameOwner(firstLog.author, uName) || isSameOwner(firstLog.author, uUser))
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    },
+    [allLeads, leads]
+  );
+
+  // Role-Based Access Control:
+  // Admin can view and access delivery records of ALL client partners.
+  // Regular Client Partners can ONLY view and access their own delivery records.
+  const accessibleDeliveryRecords = useMemo(() => {
+    if (isAdmin) {
+      return deliveryRecords;
+    }
+    if (!currentUser) return [];
+    return deliveryRecords.filter((r) => isRecordOwnedByUser(r, currentUser));
+  }, [deliveryRecords, isAdmin, currentUser, isRecordOwnedByUser]);
+
+  // Guard: if current selectedRecordId is not in accessible records, clear selection
+  useEffect(() => {
+    if (selectedRecordId && !accessibleDeliveryRecords.some((r) => r.id === selectedRecordId)) {
+      setSelectedRecordId(null);
+    }
+  }, [selectedRecordId, accessibleDeliveryRecords]);
+
+  // Filter won closure leads from pipeline that can be imported to Delivery
+  // Admin can import won deals from all leads; Client Partners can ONLY import their own closure deals
+  const closureLeads = useMemo(() => {
+    const source = isAdmin ? allLeads : leads;
+    return source.filter((l) => l.stage === "closure");
+  }, [isAdmin, allLeads, leads]);
+
+  // Record currently selected for viewing/editing (strictly scoped to accessible records)
   const selectedRecord = useMemo(() => {
     if (!selectedRecordId) return null;
-    return deliveryRecords.find((r) => r.id === selectedRecordId) || null;
-  }, [deliveryRecords, selectedRecordId]);
+    return accessibleDeliveryRecords.find((r) => r.id === selectedRecordId) || null;
+  }, [accessibleDeliveryRecords, selectedRecordId]);
 
-  // Overall KPI Metrics
+  // Find preexisting pipeline lead matching the selected delivery project
+  const matchingLead = useMemo(() => {
+    if (!selectedRecord) return null;
+    return (
+      allLeads.find((l) => l.id === selectedRecord.leadId) ||
+      leads.find((l) => l.id === selectedRecord.leadId) ||
+      allLeads.find(
+        (l) => l.companyName.trim().toLowerCase() === selectedRecord.companyName.trim().toLowerCase()
+      ) ||
+      leads.find(
+        (l) => l.companyName.trim().toLowerCase() === selectedRecord.companyName.trim().toLowerCase()
+      ) ||
+      null
+    );
+  }, [selectedRecord, allLeads, leads]);
+
+  // Comprehensive merged pipeline dossier from lead snapshot + delivery record
+  const effectivePipelineData = useMemo(() => {
+    if (!selectedRecord) return null;
+    return {
+      companyName: selectedRecord.companyName,
+      companyLogo: matchingLead?.companyLogo || selectedRecord.companyLogo,
+      contactName: matchingLead?.contactName || selectedRecord.contactName || "Contact Person",
+      designation: matchingLead?.designation || selectedRecord.designation || "Primary Decision Maker",
+      contactEmail: matchingLead?.contactEmail || selectedRecord.contactEmail,
+      contactPhone: matchingLead?.contactPhone || selectedRecord.contactPhone,
+      city: matchingLead?.city || selectedRecord.city,
+      industry: matchingLead?.industry || selectedRecord.industry,
+      program: matchingLead?.program || selectedRecord.program || "Enterprise Program",
+      leadSource: matchingLead?.leadSource || selectedRecord.leadSource || "Direct Outreach",
+      dealValue: selectedRecord.dealValue || matchingLead?.dealValue || 0,
+      stage: matchingLead?.stage || selectedRecord.stage || "closure",
+      weightage: matchingLead?.weightage ?? selectedRecord.weightage ?? 100,
+      expectedCloseDate: matchingLead?.expectedCloseDate || selectedRecord.expectedCloseDate,
+      closureMonth: matchingLead?.closureMonth || selectedRecord.closureMonth,
+      pipelineNotes: matchingLead?.notes || selectedRecord.pipelineNotes || selectedRecord.notes,
+      additionalContacts: matchingLead?.additionalContacts || selectedRecord.additionalContacts || [],
+      approachNotes: matchingLead?.approachNotes || (matchingLead?.approachNote ? [matchingLead.approachNote] : []) || selectedRecord.approachNotes || [],
+      financialDocuments: matchingLead?.financialDocuments || selectedRecord.financialDocuments || [],
+      journeyLogs: matchingLead?.journeyLogs || selectedRecord.journeyLogs || [],
+      owner: matchingLead?.owner || selectedRecord.clientPartner || "Sales Lead",
+      createdAt: matchingLead?.createdAt || selectedRecord.createdAt,
+    };
+  }, [selectedRecord, matchingLead]);
+
+  // Overall KPI Metrics (Computed on accessible records: All for Admin, Own for Client Partner)
   const metrics = useMemo(() => {
     let totalPortfolio = 0;
     let totalReceived = 0;
     let activeCount = 0;
     let deliveredCount = 0;
 
-    deliveryRecords.forEach((r) => {
+    accessibleDeliveryRecords.forEach((r) => {
       totalPortfolio += r.dealValue || 0;
       if (r.deliveryStatus === "in_progress" || r.deliveryStatus === "not_started") {
         activeCount++;
@@ -119,20 +287,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         deliveredCount++;
       }
 
-      // Calculate received based on tenure type
-      if (r.tenureType === "delivery") {
-        r.deliveryMilestones.forEach((m) => {
-          if (m.paymentStatus === "received") {
-            totalReceived += m.amount || 0;
-          }
-        });
-      } else {
-        r.paymentTerms.forEach((t) => {
-          if (t.paymentStatus === "received") {
-            totalReceived += t.amount || 0;
-          }
-        });
-      }
+      const fin = getRecordFinancials(r);
+      totalReceived += fin.received;
     });
 
     const pendingPayment = Math.max(0, totalPortfolio - totalReceived);
@@ -145,13 +301,191 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       activeCount,
       deliveredCount,
       collectionRate,
-      totalProjects: deliveryRecords.length,
+      totalProjects: accessibleDeliveryRecords.length,
     };
-  }, [deliveryRecords]);
+  }, [accessibleDeliveryRecords]);
+
+  // Aggregated Lead Owner Performance Matrix (Tabular Data)
+  const ownerPerformanceList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        owner: string;
+        accountsCount: number;
+        notStartedCount: number;
+        inProgressCount: number;
+        deliveredCount: number;
+        totalMoney: number;
+        receivedMoney: number;
+        remainingMoney: number;
+        deliveryTenureCount: number;
+        paymentTermsTenureCount: number;
+      }
+    >();
+
+    accessibleDeliveryRecords.forEach((r) => {
+      const rowMatchingLead =
+        allLeads.find((l) => l.id === r.leadId) ||
+        leads.find((l) => l.id === r.leadId) ||
+        allLeads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        ) ||
+        leads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        );
+
+      const ownerName = r.clientPartner || rowMatchingLead?.owner || "Unassigned";
+
+      if (!map.has(ownerName)) {
+        map.set(ownerName, {
+          owner: ownerName,
+          accountsCount: 0,
+          notStartedCount: 0,
+          inProgressCount: 0,
+          deliveredCount: 0,
+          totalMoney: 0,
+          receivedMoney: 0,
+          remainingMoney: 0,
+          deliveryTenureCount: 0,
+          paymentTermsTenureCount: 0,
+        });
+      }
+
+      const item = map.get(ownerName)!;
+      item.accountsCount += 1;
+      if (r.deliveryStatus === "delivered") item.deliveredCount += 1;
+      else if (r.deliveryStatus === "in_progress") item.inProgressCount += 1;
+      else item.notStartedCount += 1;
+
+      if (r.tenureType === "delivery") item.deliveryTenureCount += 1;
+      else item.paymentTermsTenureCount += 1;
+
+      const fin = getRecordFinancials(r);
+      item.totalMoney += fin.total;
+      item.receivedMoney += fin.received;
+      item.remainingMoney += fin.remaining;
+    });
+
+    return Array.from(map.values())
+      .map((item) => ({
+        ...item,
+        realizationRate: item.totalMoney > 0 ? (item.receivedMoney / item.totalMoney) * 100 : 0,
+        avgDealSize: item.accountsCount > 0 ? item.totalMoney / item.accountsCount : 0,
+      }))
+      .sort((a, b) => b.totalMoney - a.totalMoney);
+  }, [accessibleDeliveryRecords, allLeads, leads]);
+
+  // Aggregated Month-Wise Revenue & Inflow
+  const monthWiseRevenueList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        monthKey: string;
+        monthSortKey: string;
+        accountsCount: number;
+        totalMoney: number;
+        receivedMoney: number;
+        remainingMoney: number;
+      }
+    >();
+
+    accessibleDeliveryRecords.forEach((r) => {
+      const rowMatchingLead =
+        allLeads.find((l) => l.id === r.leadId) ||
+        leads.find((l) => l.id === r.leadId) ||
+        allLeads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        ) ||
+        leads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        );
+
+      const rawDate =
+        r.closureMonth ||
+        rowMatchingLead?.closureMonth ||
+        r.startDate ||
+        rowMatchingLead?.expectedCloseDate ||
+        r.createdAt;
+
+      const comps = getDateComponents(rawDate);
+      const monthKey = comps.isValid
+        ? `${comps.monthLong} ${comps.year}`
+        : "Unscheduled / Ongoing";
+      const monthSortKey = comps.isValid
+        ? `${comps.year}-${String(comps.monthNum).padStart(2, "0")}`
+        : "9999-99";
+
+      if (!map.has(monthKey)) {
+        map.set(monthKey, {
+          monthKey,
+          monthSortKey,
+          accountsCount: 0,
+          totalMoney: 0,
+          receivedMoney: 0,
+          remainingMoney: 0,
+        });
+      }
+
+      const item = map.get(monthKey)!;
+      item.accountsCount += 1;
+      const fin = getRecordFinancials(r);
+      item.totalMoney += fin.total;
+      item.receivedMoney += fin.received;
+      item.remainingMoney += fin.remaining;
+    });
+
+    return Array.from(map.values())
+      .map((item) => ({
+        ...item,
+        realizationRate: item.totalMoney > 0 ? (item.receivedMoney / item.totalMoney) * 100 : 0,
+      }))
+      .sort((a, b) => a.monthSortKey.localeCompare(b.monthSortKey));
+  }, [accessibleDeliveryRecords, allLeads, leads]);
+
+  // Tenure Model Comparison Insights
+  const tenureModelInsights = useMemo(() => {
+    let deliveryModelAccounts = 0;
+    let deliveryModelMoney = 0;
+    let deliveryModelReceived = 0;
+
+    let paymentTermsAccounts = 0;
+    let paymentTermsMoney = 0;
+    let paymentTermsReceived = 0;
+
+    accessibleDeliveryRecords.forEach((r) => {
+      const fin = getRecordFinancials(r);
+      if (r.tenureType === "delivery") {
+        deliveryModelAccounts += 1;
+        deliveryModelMoney += fin.total;
+        deliveryModelReceived += fin.received;
+      } else {
+        paymentTermsAccounts += 1;
+        paymentTermsMoney += fin.total;
+        paymentTermsReceived += fin.received;
+      }
+    });
+
+    return {
+      delivery: {
+        accounts: deliveryModelAccounts,
+        totalMoney: deliveryModelMoney,
+        receivedMoney: deliveryModelReceived,
+        remainingMoney: Math.max(0, deliveryModelMoney - deliveryModelReceived),
+        rate: deliveryModelMoney > 0 ? (deliveryModelReceived / deliveryModelMoney) * 100 : 0,
+      },
+      paymentTerms: {
+        accounts: paymentTermsAccounts,
+        totalMoney: paymentTermsMoney,
+        receivedMoney: paymentTermsReceived,
+        remainingMoney: Math.max(0, paymentTermsMoney - paymentTermsReceived),
+        rate: paymentTermsMoney > 0 ? (paymentTermsReceived / paymentTermsMoney) * 100 : 0,
+      },
+    };
+  }, [accessibleDeliveryRecords]);
 
   // Filtered records
   const filteredRecords = useMemo(() => {
-    return deliveryRecords.filter((r) => {
+    return accessibleDeliveryRecords.filter((r) => {
       const matchesSearch =
         searchQuery === "" ||
         r.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -165,9 +499,27 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       const matchesStatus =
         selectedStatusFilter === "all" || r.deliveryStatus === selectedStatusFilter;
 
-      return matchesSearch && matchesTenure && matchesStatus;
+      const rowMatchingLead =
+        allLeads.find((l) => l.id === r.leadId) ||
+        leads.find((l) => l.id === r.leadId) ||
+        allLeads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        ) ||
+        leads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        );
+
+      const effectiveOwner = r.clientPartner || rowMatchingLead?.owner || "Unassigned";
+
+      const matchesOwner =
+        !isAdmin ||
+        selectedOwnerFilter === "all" ||
+        effectiveOwner.toLowerCase() === selectedOwnerFilter.toLowerCase() ||
+        (r.clientPartner && r.clientPartner.toLowerCase() === selectedOwnerFilter.toLowerCase());
+
+      return matchesSearch && matchesTenure && matchesStatus && matchesOwner;
     });
-  }, [deliveryRecords, searchQuery, selectedTenureFilter, selectedStatusFilter]);
+  }, [accessibleDeliveryRecords, searchQuery, selectedTenureFilter, selectedStatusFilter, selectedOwnerFilter, allLeads, leads, isAdmin]);
 
   // Handlers
   const handleSelectRecord = (id: string) => {
@@ -192,12 +544,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     e.preventDefault();
     if (!newProjectForm.companyName.trim()) return;
 
+    const assignedPartner = isAdmin
+      ? newProjectForm.clientPartner || currentUser?.name || "Sales Lead"
+      : currentUser?.name || "Client Partner";
+
     const mockLead: Partial<Lead> = {
       id: `custom-proj-${Date.now()}`,
       companyName: newProjectForm.companyName.trim(),
       dealValue: Number(newProjectForm.dealValue) || 1000000,
       program: newProjectForm.program,
-      owner: newProjectForm.clientPartner,
+      owner: assignedPartner,
       stage: "closure",
       contactName: "Lead Stakeholder",
       createdAt: new Date().toISOString(),
@@ -387,11 +743,18 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   };
 
   const handleRequestDelete = (record: DeliveryRecord) => {
+    if (!isAdmin && currentUser && !isRecordOwnedByUser(record, currentUser)) {
+      return;
+    }
     setProjectToDelete(record);
   };
 
   const handleConfirmDelete = async () => {
     if (!projectToDelete) return;
+    if (!isAdmin && currentUser && !isRecordOwnedByUser(projectToDelete, currentUser)) {
+      setProjectToDelete(null);
+      return;
+    }
     const targetId = projectToDelete.id;
 
     // Immediately update local state for instantaneous feedback
@@ -462,14 +825,24 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 <Truck className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center space-x-2 flex-wrap gap-y-1">
                   <span>Delivery & Execution Hub</span>
-                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                    Live Pipeline
-                  </span>
+                  {isAdmin ? (
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center space-x-1 shadow-2xs">
+                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                      <span>Executive Admin • All Client Partners ({accessibleDeliveryRecords.length})</span>
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center space-x-1 shadow-2xs">
+                      <UserCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      <span>Client Partner: {currentUser?.name || "My Deliveries"} ({accessibleDeliveryRecords.length})</span>
+                    </span>
+                  )}
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                  Manage won closure projects, project completion-linked payout milestones, and schedule-based payment terms.
+                  {isAdmin
+                    ? "Admin overview: Full visibility and control across all client partner delivery projects, milestone payouts, and financial terms."
+                    : `Client partner view for ${currentUser?.name || "you"}: Track and fulfill your assigned delivery projects, completion milestones, and payment terms.`}
                 </p>
               </div>
             </div>
@@ -562,35 +935,532 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             </div>
           </SpringWidget>
         </div>
+
+        {/* ========================================================= */}
+        {/* EXECUTIVE PAYMENTS & REVENUE ANALYTICS PANEL */}
+        {/* ========================================================= */}
+        <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl text-indigo-600 dark:text-indigo-400 shadow-sm">
+                <BarChart3 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                  <span>
+                    {isAdmin
+                      ? "Executive Revenue Insights & Portfolio Matrix"
+                      : "My Delivery Revenue & Portfolio Matrix"}
+                  </span>
+                  {isAdmin && selectedOwnerFilter !== "all" && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      Filtered: {selectedOwnerFilter}
+                    </span>
+                  )}
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {isAdmin
+                    ? "Comprehensive lead owner portfolio breakdown across all client partners, realized & pending cashflow, and month-wise revenue trajectory."
+                    : "Performance breakdown of your assigned accounts, realized payment inflow, and pending completion milestones."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center flex-wrap gap-2">
+              {/* Tab Selector Buttons */}
+              <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeaderAnalyticsTab("owner_matrix");
+                    setIsAnalyticsExpanded(true);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    headerAnalyticsTab === "owner_matrix" && isAnalyticsExpanded
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm font-black"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>{isAdmin ? "Lead Owner Matrix" : "My Portfolio Matrix"}</span>
+                  <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700">
+                    {ownerPerformanceList.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeaderAnalyticsTab("month_wise");
+                    setIsAnalyticsExpanded(true);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    headerAnalyticsTab === "month_wise" && isAnalyticsExpanded
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm font-black"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span>Month-Wise Revenue</span>
+                  <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700">
+                    {monthWiseRevenueList.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeaderAnalyticsTab("payment_insights");
+                    setIsAnalyticsExpanded(true);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    headerAnalyticsTab === "payment_insights" && isAnalyticsExpanded
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm font-black"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Payment Insights</span>
+                </button>
+              </div>
+
+              {/* Collapse / Expand Toggle */}
+              <button
+                type="button"
+                onClick={() => setIsAnalyticsExpanded(!isAnalyticsExpanded)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:bg-slate-800 rounded-lg transition cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                title={isAnalyticsExpanded ? "Collapse Analytics Panel" : "Expand Analytics Panel"}
+              >
+                {isAnalyticsExpanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Collapsible Content Panels */}
+          {isAnalyticsExpanded && (
+            <div className="pt-2">
+              {/* TAB 1: LEAD OWNER PERFORMANCE MATRIX (TABULAR DATA) */}
+              {headerAnalyticsTab === "owner_matrix" && (
+                <div className="space-y-3">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          <th className="py-3 px-4">Lead Owner</th>
+                          <th className="py-3 px-4">Accounts Under Owner</th>
+                          <th className="py-3 px-4">All Money (Contracted)</th>
+                          <th className="py-3 px-4">Received Payment</th>
+                          <th className="py-3 px-4">Remaining Receivable</th>
+                          <th className="py-3 px-4">Realization Rate</th>
+                          <th className="py-3 px-4">Avg Deal Size</th>
+                          <th className="py-3 px-4">Tenure Mix</th>
+                          <th className="py-3 px-4 text-right">Filter Projects</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                        {ownerPerformanceList.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="py-8 text-center text-slate-400">
+                              No delivery accounts assigned to lead owners yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          ownerPerformanceList.map((item) => {
+                            const profile = getUserProfile(item.owner);
+                            const isCurrentFilter =
+                              selectedOwnerFilter.toLowerCase() === item.owner.toLowerCase();
+
+                            return (
+                              <tr
+                                key={item.owner}
+                                className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition ${
+                                  isCurrentFilter ? "bg-indigo-50/70 dark:bg-indigo-950/40" : ""
+                                }`}
+                              >
+                                {/* Lead Owner */}
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center space-x-2.5">
+                                    <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-600 to-blue-600 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm">
+                                      {item.owner.slice(0, 2).toUpperCase()}
+                                    </div>
+                                    <div>
+                                      <div className="font-black text-slate-900 dark:text-white text-xs">
+                                        {item.owner}
+                                      </div>
+                                      <div className="text-[10px] text-slate-400">
+                                        {profile.designation || profile.role || "Client Partner"}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* Accounts Under Owner */}
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="font-black text-slate-900 dark:text-white">
+                                      {item.accountsCount}
+                                    </span>
+                                    <span className="text-[11px] text-slate-400">
+                                      account{item.accountsCount !== 1 ? "s" : ""}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 mt-0.5 space-x-1">
+                                    {item.inProgressCount > 0 && (
+                                      <span className="text-blue-600 dark:text-blue-400 font-semibold">
+                                        {item.inProgressCount} active
+                                      </span>
+                                    )}
+                                    {item.deliveredCount > 0 && (
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                        • {item.deliveredCount} delivered
+                                      </span>
+                                    )}
+                                    {item.notStartedCount > 0 && (
+                                      <span className="text-slate-400">
+                                        • {item.notStartedCount} queued
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* All Money (Contracted) */}
+                                <td className="py-3 px-4 font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                  {formatINR(item.totalMoney)}
+                                </td>
+
+                                {/* Received Payment */}
+                                <td className="py-3 px-4 font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                  {formatINR(item.receivedMoney)}
+                                </td>
+
+                                {/* Remaining Receivable */}
+                                <td className="py-3 px-4 font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                  {formatINR(item.remainingMoney)}
+                                </td>
+
+                                {/* Realization Rate */}
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center space-x-2">
+                                    <div className="w-16 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden shrink-0">
+                                      <div
+                                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                                        style={{ width: `${Math.min(100, item.realizationRate)}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs font-black text-slate-700 dark:text-slate-300">
+                                      {item.realizationRate.toFixed(0)}%
+                                    </span>
+                                  </div>
+                                </td>
+
+                                {/* Avg Deal Size */}
+                                <td className="py-3 px-4 font-bold text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                  {formatINR(item.avgDealSize)}
+                                </td>
+
+                                {/* Tenure Mix */}
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {item.deliveryTenureCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60">
+                                        {item.deliveryTenureCount} Milestone
+                                      </span>
+                                    )}
+                                    {item.paymentTermsTenureCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/60">
+                                        {item.paymentTermsTenureCount} Schedule
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Filter Projects Action */}
+                                <td className="py-3 px-4 text-right">
+                                  {isCurrentFilter ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedOwnerFilter("all")}
+                                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm transition cursor-pointer inline-flex items-center space-x-1"
+                                      title="Currently active filter. Click to reset."
+                                    >
+                                      <Check className="w-3 h-3" />
+                                      <span>Active Filter</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedOwnerFilter(item.owner);
+                                        const tableElement = document.getElementById("delivery-projects-table");
+                                        if (tableElement) {
+                                          tableElement.scrollIntoView({ behavior: "smooth" });
+                                        }
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950 text-slate-700 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400 font-bold text-xs transition cursor-pointer"
+                                      title={`Filter delivery table to show accounts under ${item.owner}`}
+                                    >
+                                      Filter Table
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                      {/* Summary Totals Row */}
+                      {ownerPerformanceList.length > 0 && (
+                        <tfoot>
+                          <tr className="border-t-2 border-slate-200 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white">
+                            <td className="py-3 px-4 text-xs">
+                              TOTAL ({ownerPerformanceList.length} Owners)
+                            </td>
+                            <td className="py-3 px-4 text-xs">
+                              {metrics.totalProjects} Accounts
+                            </td>
+                            <td className="py-3 px-4 text-xs whitespace-nowrap">
+                              {formatINR(metrics.totalPortfolio)}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                              {formatINR(metrics.totalReceived)}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                              {formatINR(metrics.pendingPayment)}
+                            </td>
+                            <td className="py-3 px-4 text-xs">
+                              {metrics.collectionRate.toFixed(1)}% Realized
+                            </td>
+                            <td className="py-3 px-4 text-xs whitespace-nowrap">
+                              {formatINR(
+                                metrics.totalProjects > 0
+                                  ? metrics.totalPortfolio / metrics.totalProjects
+                                  : 0
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-[10px] text-slate-500 dark:text-slate-400">
+                              Team Portfolio
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {selectedOwnerFilter !== "all" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedOwnerFilter("all")}
+                                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
+                                >
+                                  Reset Filter
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: MONTH-WISE REVENUE & INFLOW */}
+              {headerAnalyticsTab === "month_wise" && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                    {monthWiseRevenueList.length === 0 ? (
+                      <div className="col-span-full py-8 text-center text-slate-400">
+                        No monthly revenue data available.
+                      </div>
+                    ) : (
+                      monthWiseRevenueList.map((m) => (
+                        <div
+                          key={m.monthKey}
+                          className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-sm space-y-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <Calendar className="w-4 h-4 text-indigo-500" />
+                              <h5 className="font-black text-slate-900 dark:text-white text-sm">
+                                {m.monthKey}
+                              </h5>
+                            </div>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              {m.accountsCount} project{m.accountsCount !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                              <span>Total Contracted:</span>
+                              <strong className="text-slate-900 dark:text-white">
+                                {formatINR(m.totalMoney)}
+                              </strong>
+                            </div>
+                            <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                              <span>Received Inflow:</span>
+                              <strong>{formatINR(m.receivedMoney)}</strong>
+                            </div>
+                            <div className="flex justify-between items-center text-amber-600 dark:text-amber-400">
+                              <span>Remaining Receivable:</span>
+                              <strong>{formatINR(m.remainingMoney)}</strong>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span className="text-slate-400">Realization Rate</span>
+                              <strong className="text-slate-700 dark:text-slate-300">
+                                {m.realizationRate.toFixed(0)}%
+                              </strong>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400"
+                                style={{ width: `${Math.min(100, m.realizationRate)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: PAYMENT INSIGHTS & TENURE MODELS */}
+              {headerAnalyticsTab === "payment_insights" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Delivery Milestone Model Card */}
+                  <div className="p-4 rounded-xl border border-indigo-200/80 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Truck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <h4 className="font-black text-slate-900 dark:text-white text-sm">
+                          Delivery (% Completion Milestone Model)
+                        </h4>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300">
+                        {tenureModelInsights.delivery.accounts} projects
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Payment tranches triggered strictly when operational milestones (20%, 50%, 100%) reach completion.
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-indigo-100 dark:border-indigo-900/50 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Total Portfolio</span>
+                        <strong className="text-slate-900 dark:text-white">
+                          {formatINR(tenureModelInsights.delivery.totalMoney)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-emerald-600 block">Realized Inflow</span>
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          {formatINR(tenureModelInsights.delivery.receivedMoney)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-amber-600 block">Pending Balance</span>
+                        <strong className="text-amber-600 dark:text-amber-400">
+                          {formatINR(tenureModelInsights.delivery.remainingMoney)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Payment Terms Schedule Model Card */}
+                  <div className="p-4 rounded-xl border border-purple-200/80 dark:border-purple-900/60 bg-purple-50/40 dark:bg-purple-950/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        <h4 className="font-black text-slate-900 dark:text-white text-sm">
+                          Payment Terms (Schedule & Advance Model)
+                        </h4>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300">
+                        {tenureModelInsights.paymentTerms.accounts} projects
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Scheduled calendar milestones with advance signing deposits (e.g., 30% upfront, remaining quarterly).
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-purple-100 dark:border-purple-900/50 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Total Portfolio</span>
+                        <strong className="text-slate-900 dark:text-white">
+                          {formatINR(tenureModelInsights.paymentTerms.totalMoney)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-emerald-600 block">Realized Inflow</span>
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          {formatINR(tenureModelInsights.paymentTerms.receivedMoney)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-amber-600 block">Pending Balance</span>
+                        <strong className="text-amber-600 dark:text-amber-400">
+                          {formatINR(tenureModelInsights.paymentTerms.remainingMoney)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* DETAILED PROJECT DELIVERY & TENURE MANAGER (When a project is selected) */}
       {selectedRecord && (
         <div className="bg-white dark:bg-slate-900 border-2 border-indigo-500/40 dark:border-indigo-500/30 rounded-2xl p-6 shadow-xl space-y-6 relative">
           {/* Top banner of selected project */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-200 dark:border-slate-800 gap-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setSelectedRecordId(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg transition"
-                  title="Close project view"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-                <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 rounded-md">
-                  Active Delivery Management
-                </span>
-                <span className="text-xs text-slate-400">• ID: {selectedRecord.id}</span>
-              </div>
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white mt-1 flex items-center space-x-2">
-                <span>{selectedRecord.companyName}</span>
-                <span className="text-sm font-bold text-slate-400">({selectedRecord.program})</span>
-              </h2>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 mt-1">
-                <span>Owner: <strong className="text-slate-700 dark:text-slate-200">{selectedRecord.clientPartner}</strong></span>
-                <span>Delivery Lead: <strong className="text-slate-700 dark:text-slate-200">{selectedRecord.deliveryLead || "Unassigned"}</strong></span>
-                <span>Value: <strong className="text-indigo-600 dark:text-indigo-400">{formatINR(selectedRecord.dealValue)}</strong></span>
+          <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-slate-200 dark:border-slate-800 gap-4">
+            <div className="flex items-start space-x-3.5">
+              {effectivePipelineData?.companyLogo ? (
+                <img
+                  src={effectivePipelineData.companyLogo}
+                  alt={selectedRecord.companyName}
+                  className="w-14 h-14 rounded-2xl object-contain bg-white dark:bg-slate-800 border-2 border-indigo-200 dark:border-indigo-800/60 p-1 shadow-sm shrink-0 mt-1"
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 border-2 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 font-black text-xl flex items-center justify-center shadow-sm shrink-0 mt-1">
+                  {selectedRecord.companyName.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setSelectedRecordId(null)}
+                    className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg transition"
+                    title="Close project view"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 rounded-md">
+                    Active Delivery Management
+                  </span>
+                  <span className="text-xs text-slate-400">• ID: {selectedRecord.id}</span>
+                  {matchingLead && (
+                    <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md flex items-center space-x-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                      <span>Synced with Pipeline Lead</span>
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white mt-1 flex items-center space-x-2">
+                  <span>{selectedRecord.companyName}</span>
+                  <span className="text-sm font-bold text-slate-400">({selectedRecord.program})</span>
+                </h2>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  <span>Owner: <strong className="text-slate-700 dark:text-slate-200">{selectedRecord.clientPartner}</strong></span>
+                  <span>Delivery Lead: <strong className="text-slate-700 dark:text-slate-200">{selectedRecord.deliveryLead || "Unassigned"}</strong></span>
+                  <span>Value: <strong className="text-indigo-600 dark:text-indigo-400">{formatINR(selectedRecord.dealValue)}</strong></span>
+                  {effectivePipelineData?.contactName && (
+                    <span>Primary Contact: <strong className="text-slate-700 dark:text-slate-200">{effectivePipelineData.contactName} ({effectivePipelineData.designation})</strong></span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -690,10 +1560,66 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* THE CORE TENURE HEADING & SELECTION ENGINE */}
-          {/* ========================================================= */}
-          <div className="space-y-4 pt-2">
+          {/* Sub-navigation: Delivery Tenure vs Pipeline Preexisting Data */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1 pb-1 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setProjectSubTab("tenure")}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-black transition cursor-pointer ${
+                  projectSubTab === "tenure"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <Receipt className="w-4 h-4" />
+                <span>Delivery & Tenure Schedule</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProjectSubTab("pipeline_data")}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-black transition cursor-pointer ${
+                  projectSubTab === "pipeline_data"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <FolderOpen className="w-4 h-4 text-indigo-500" />
+                <span>Preexisting Pipeline Data & Dossier</span>
+                {effectivePipelineData && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                      projectSubTab === "pipeline_data"
+                        ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400"
+                        : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    {effectivePipelineData.journeyLogs.length +
+                      effectivePipelineData.approachNotes.length +
+                      effectivePipelineData.financialDocuments.length +
+                      effectivePipelineData.additionalContacts.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {matchingLead && onSelectLead && (
+              <button
+                type="button"
+                onClick={() => onSelectLead(matchingLead)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="Open the complete pipeline lead modal"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Lead in Pipeline</span>
+              </button>
+            )}
+          </div>
+
+          {/* VIEW 1: TENURE & PAYMENT MILESTONES */}
+          {projectSubTab === "tenure" && (
+            <div className="space-y-4 pt-1 animate-fadeIn">
             <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
@@ -1189,23 +2115,381 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* VIEW 2: PREEXISTING PIPELINE DATA & DOSSIER */}
+        {projectSubTab === "pipeline_data" && effectivePipelineData && (
+          <div className="space-y-6 pt-1 animate-fadeIn">
+            {/* 1. Commercial Dossier & Key Pipeline Attributes */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Deal Value & Program */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-1.5 shadow-sm">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Deal Value & Program
+                </span>
+                <div className="text-xl font-black text-slate-900 dark:text-white">
+                  {formatINR(effectivePipelineData.dealValue)}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    {effectivePipelineData.program}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                    {effectivePipelineData.leadSource}
+                  </span>
+                </div>
+              </div>
+
+              {/* Stage & Closure Timeline */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-1.5 shadow-sm">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Pipeline Stage & Status
+                </span>
+                <div className="flex items-center space-x-1.5">
+                  <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Closure (Won) • {effectivePipelineData.weightage}%</span>
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 pt-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  <span>
+                    Closure Month: <strong className="text-slate-700 dark:text-slate-200">{formatClosureMonth(effectivePipelineData.closureMonth || effectivePipelineData.expectedCloseDate)}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Ownership & Location */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-1.5 shadow-sm">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Deal Owner & Region
+                </span>
+                <div className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <Users className="w-4 h-4 text-indigo-500" />
+                  <span>{effectivePipelineData.owner}</span>
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 pt-1">
+                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                  <span>
+                    {effectivePipelineData.city || "Pan India"} • {effectivePipelineData.industry || "General Industry"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Preexisting History & Collateral */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-1.5 shadow-sm">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Pipeline Dossier Assets
+                </span>
+                <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-0.5">
+                  <div className="flex items-center justify-between">
+                    <span>Approach Notes:</span>
+                    <strong className="text-indigo-600 dark:text-indigo-400">{effectivePipelineData.approachNotes.length} files</strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Financial Docs:</span>
+                    <strong className="text-emerald-600 dark:text-emerald-400">{effectivePipelineData.financialDocuments.length} files</strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Journey Logs:</span>
+                    <strong className="text-slate-700 dark:text-slate-200">{effectivePipelineData.journeyLogs.length} events</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Stakeholders & Contacts */}
+            <div className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                  <Users className="w-4 h-4 text-indigo-500" />
+                  <span>Stakeholders & Contact Directory</span>
+                </h4>
+                <span className="text-xs text-slate-400">
+                  {(effectivePipelineData.additionalContacts.length || 0) + 1} Stakeholders Recorded
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {/* Primary Contact Card */}
+                <div className="p-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-500/30 rounded-xl space-y-2 relative shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-xs font-black text-slate-900 dark:text-white">
+                        {effectivePipelineData.contactName}
+                      </div>
+                      <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">
+                        {effectivePipelineData.designation || "Primary Decision Maker"}
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      Primary Lead
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-xs text-slate-600 dark:text-slate-400 pt-1">
+                    {effectivePipelineData.contactEmail && (
+                      <a
+                        href={`mailto:${effectivePipelineData.contactEmail}`}
+                        className="flex items-center space-x-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                      >
+                        <Mail className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="truncate">{effectivePipelineData.contactEmail}</span>
+                      </a>
+                    )}
+                    {effectivePipelineData.contactPhone && (
+                      <a
+                        href={`tel:${effectivePipelineData.contactPhone}`}
+                        className="flex items-center space-x-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                      >
+                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{effectivePipelineData.contactPhone}</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* Additional Contacts Cards */}
+                {effectivePipelineData.additionalContacts.map((contact, idx) => (
+                  <div
+                    key={contact.id || idx}
+                    className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 shadow-sm"
+                  >
+                    <div>
+                      <div className="text-xs font-black text-slate-900 dark:text-white">
+                        {contact.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                        {contact.designation || "Stakeholder"}
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-xs text-slate-600 dark:text-slate-400 pt-1">
+                      {contact.email && (
+                        <a
+                          href={`mailto:${contact.email}`}
+                          className="flex items-center space-x-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                        >
+                          <Mail className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="truncate">{contact.email}</span>
+                        </a>
+                      )}
+                      {contact.contactNumber && (
+                        <a
+                          href={`tel:${contact.contactNumber}`}
+                          className="flex items-center space-x-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{contact.contactNumber}</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. Pipeline Notes / Handover Instructions */}
+            {effectivePipelineData.pipelineNotes && (
+              <div className="p-4 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/60 rounded-2xl space-y-2 shadow-sm">
+                <div className="flex items-center space-x-2 text-xs font-black text-amber-800 dark:text-amber-300">
+                  <MessageSquare className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <span>Pipeline Handoff Instructions & Deal Notes</span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                  {effectivePipelineData.pipelineNotes}
+                </p>
+              </div>
+            )}
+
+            {/* 4. Approach Notes & Financial Documents Side-by-Side */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Approach Notes */}
+              <div className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                    <FileText className="w-4 h-4 text-indigo-500" />
+                    <span>Pipeline Approach Notes & Collateral</span>
+                  </h4>
+                  <span className="text-xs font-bold text-slate-400">
+                    {effectivePipelineData.approachNotes.length} Files
+                  </span>
+                </div>
+
+                {effectivePipelineData.approachNotes.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                    No approach notes attached in the pipeline.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {effectivePipelineData.approachNotes.map((an, idx) => (
+                      <div
+                        key={an.id || idx}
+                        className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between gap-2 shadow-sm"
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {an.fileName}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {an.fileSize} • Uploaded by {an.uploadedBy}
+                            </div>
+                          </div>
+                        </div>
+
+                        {an.downloadUrl && (
+                          <a
+                            href={an.downloadUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-lg transition shrink-0"
+                            title="Download / View file"
+                          >
+                            <Download className="w-4 h-4" />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Financial Documents */}
+              <div className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                    <Receipt className="w-4 h-4 text-emerald-500" />
+                    <span>Financial Documents & Purchase Orders</span>
+                  </h4>
+                  <span className="text-xs font-bold text-slate-400">
+                    {effectivePipelineData.financialDocuments.length} Files
+                  </span>
+                </div>
+
+                {effectivePipelineData.financialDocuments.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                    No financial documents attached in the pipeline.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {effectivePipelineData.financialDocuments.map((doc, idx) => (
+                      <div
+                        key={doc.id || idx}
+                        className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between gap-2 shadow-sm"
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg shrink-0">
+                            <FileCheck className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {doc.fileName}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {doc.fileSize} • Uploaded by {doc.uploadedBy}
+                            </div>
+                          </div>
+                        </div>
+
+                        {doc.downloadUrl && (
+                          <a
+                            href={doc.downloadUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 rounded-lg transition shrink-0"
+                            title="Download / View document"
+                          >
+                            <Download className="w-4 h-4" />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 5. Full Pipeline Journey History Log */}
+            <div className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                  <History className="w-4 h-4 text-indigo-500" />
+                  <span>Preexisting Pipeline Journey Timeline</span>
+                </h4>
+                <span className="text-xs text-slate-400">
+                  {effectivePipelineData.journeyLogs.length} Historical Touchpoints
+                </span>
+              </div>
+
+              {effectivePipelineData.journeyLogs.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                  Transferred directly to delivery upon deal closure. No prior pipeline logs found.
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                  {effectivePipelineData.journeyLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-start space-x-3 shadow-sm"
+                    >
+                      <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0">
+                        <Clock className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h5 className="text-xs font-black text-slate-900 dark:text-white">
+                            {log.title}
+                          </h5>
+                          <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                            {log.formattedDate || new Date(log.timestamp).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 whitespace-pre-wrap leading-relaxed">
+                          {log.description}
+                        </p>
+                        <div className="text-[10px] text-slate-400 mt-1.5 flex items-center space-x-2">
+                          <span>Author: <strong className="text-slate-700 dark:text-slate-300">{log.author}</strong></span>
+                          <span>•</span>
+                          <span className="capitalize">{log.type.replace(/_/g, " ")}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
 
       {/* ========================================================= */}
       {/* ALL PROJECTS IN DELIVERY PIPELINE TABLE / CARDS */}
       {/* ========================================================= */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-5">
+      <div
+        id="delivery-projects-table"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-5"
+      >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
-              <span>All Delivery Projects</span>
+            <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2 flex-wrap gap-y-1">
+              <span>{isAdmin ? "All Delivery Projects" : "My Delivery Projects"}</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300">
                 {filteredRecords.length}
               </span>
+              {isAdmin && selectedOwnerFilter !== "all" && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                  Owner: {selectedOwnerFilter}
+                </span>
+              )}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Click any project to configure or manage its Tenure model and completion milestones.
+              {isAdmin
+                ? "Click any project to configure or manage its Tenure model and completion milestones across all client partners."
+                : "Click your assigned project to manage tenure terms, milestones, and payment realizations."}
             </p>
           </div>
 
@@ -1217,10 +2501,56 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search company, owner..."
+                placeholder={isAdmin ? "Search company, owner..." : "Search company, program..."}
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
               />
             </div>
+
+            {/* Lead Owner Filter: Admin gets dropdown across all partners, Client Partner is locked */}
+            {isAdmin ? (
+              <div className="relative">
+                <select
+                  value={selectedOwnerFilter}
+                  onChange={(e) => setSelectedOwnerFilter(e.target.value)}
+                  className={`text-xs font-bold px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border rounded-xl text-slate-700 dark:text-slate-200 transition ${
+                    selectedOwnerFilter !== "all"
+                      ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300"
+                      : "border-slate-200 dark:border-slate-700"
+                  }`}
+                  title="Admin Filter by Lead Owner"
+                >
+                  <option value="all">
+                    All Lead Owners ({ownerPerformanceList.length})
+                  </option>
+                  {ownerPerformanceList.map((o) => (
+                    <option key={o.owner} value={o.owner}>
+                      {o.owner} ({o.accountsCount} {o.accountsCount === 1 ? "account" : "accounts"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 shadow-2xs"
+                title="Client Partner: viewing only your assigned delivery projects"
+              >
+                <Lock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                <span>My Deliveries ({accessibleDeliveryRecords.length})</span>
+              </div>
+            )}
+
+            {isAdmin && selectedOwnerFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => setSelectedOwnerFilter("all")}
+                className="flex items-center space-x-1 px-2.5 py-1.5 text-xs bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-xl font-bold transition cursor-pointer"
+                title="Clear owner filter"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>{selectedOwnerFilter}</span>
+                <X className="w-3.5 h-3.5 ml-0.5" />
+              </button>
+            )}
 
             <select
               value={selectedTenureFilter}
@@ -1294,6 +2624,17 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
                   const isSelected = selectedRecordId === r.id;
 
+                  const rowMatchingLead =
+                    allLeads.find((l) => l.id === r.leadId) ||
+                    leads.find((l) => l.id === r.leadId) ||
+                    allLeads.find(
+                      (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+                    ) ||
+                    leads.find(
+                      (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+                    );
+                  const effectiveRowLogo = rowMatchingLead?.companyLogo || r.companyLogo;
+
                   return (
                     <tr
                       key={r.id}
@@ -1303,11 +2644,26 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       }`}
                     >
                       <td className="py-3.5 px-4">
-                        <div className="font-black text-slate-900 dark:text-white text-sm">
-                          {r.companyName}
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {r.program || "Enterprise Program"}
+                        <div className="flex items-center space-x-2.5">
+                          {effectiveRowLogo ? (
+                            <img
+                              src={effectiveRowLogo}
+                              alt={r.companyName}
+                              className="w-8 h-8 rounded-lg object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-0.5 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-black text-xs flex items-center justify-center border border-indigo-200 dark:border-indigo-800 shrink-0">
+                              {r.companyName.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-black text-slate-900 dark:text-white text-sm">
+                              {r.companyName}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {r.program || "Enterprise Program"}
+                            </div>
+                          </div>
                         </div>
                       </td>
 
@@ -1389,10 +2745,24 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             onClick={(e) => {
                               e.stopPropagation();
                               handleSelectRecord(r.id);
+                              setProjectSubTab("tenure");
                             }}
                             className="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 font-bold text-xs transition cursor-pointer"
                           >
                             Manage Tenure
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectRecord(r.id);
+                              setProjectSubTab("pipeline_data");
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold text-xs transition cursor-pointer flex items-center space-x-1"
+                            title="View preexisting pipeline data for this project"
+                          >
+                            <FolderOpen className="w-3.5 h-3.5 text-indigo-500" />
+                            <span>Pipeline Data</span>
                           </button>
                           <button
                             type="button"
@@ -1593,6 +2963,32 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   <option value="Assessments & Succession">Assessments & Succession</option>
                   <option value="Custom Delivery">Custom Delivery</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-600 dark:text-slate-300 block mb-1">
+                  Assign Client Partner *
+                </label>
+                {isAdmin ? (
+                  <select
+                    value={newProjectForm.clientPartner}
+                    onChange={(e) =>
+                      setNewProjectForm({ ...newProjectForm, clientPartner: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white"
+                  >
+                    {VALID_USERS.filter((u) => u.username !== "admin" && u.username !== "accounts").map((u) => (
+                      <option key={u.username} value={u.name}>
+                        {u.name} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between text-xs">
+                    <span>{currentUser?.name || "Client Partner"}</span>
+                    <span className="text-[10px] text-slate-400 font-medium">Assigned to You</span>
+                  </div>
+                )}
               </div>
 
               <div>

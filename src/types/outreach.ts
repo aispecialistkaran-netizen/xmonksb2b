@@ -35,6 +35,15 @@ export interface OutreachTouchpoint {
   activityDate?: string; // Date string e.g. "2026-09-30"
 }
 
+export interface AdminCommentReply {
+  id: string;
+  author: string; // e.g. "Ruby"
+  authorUsername: string; // e.g. "ruby"
+  authorRole?: string;
+  reply: string;
+  createdAt: string; // ISO date string
+}
+
 export interface AdminComment {
   id: string;
   clientId: string;
@@ -45,6 +54,7 @@ export interface AdminComment {
   createdAt: string; // ISO date string
   readByOwner?: boolean;
   readAt?: string;
+  replies?: AdminCommentReply[];
 }
 
 export interface ColdClient {

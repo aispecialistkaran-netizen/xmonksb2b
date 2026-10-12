@@ -392,6 +392,21 @@ export async function createDeliveryRecordFromLead(
     deliveryLead: deliveryLead,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+
+    // Copy all preexisting pipeline data
+    companyLogo: lead.companyLogo,
+    designation: lead.designation,
+    leadSource: lead.leadSource,
+    stage: lead.stage,
+    weightage: lead.weightage,
+    closureMonth: lead.closureMonth,
+    expectedCloseDate: lead.expectedCloseDate,
+    pipelineNotes: lead.notes,
+    additionalContacts: lead.additionalContacts || [],
+    approachNotes: lead.approachNotes || (lead.approachNote ? [lead.approachNote] : []),
+    financialDocuments: lead.financialDocuments || [],
+    journeyLogs: lead.journeyLogs || [],
+
     tenureType: tenureType,
     deliveryStatus: "not_started",
     overallCompletionPercent: 0,

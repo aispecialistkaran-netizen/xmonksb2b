@@ -44,6 +44,7 @@ import { TouchpointHistoryTab } from "@/components/TouchpointHistoryTab";
 import { BillingTab } from "@/components/BillingTab";
 import { DeliveryTab } from "@/components/DeliveryTab";
 import { SpringPortalLoader } from "@/components/spring";
+import { MoneyLottieLoader } from "@/components/MoneyLottieLoader";
 import { ProspectorTab } from "@/components/ProspectorTab";
 import { LibraryTab } from "@/components/LibraryTab";
 import { EmailAttachment } from "@/constants/emailTemplates";
@@ -60,6 +61,7 @@ import {
   convertColdClientToLead,
   addAdminCommentToColdClient,
   markAdminCommentRead,
+  addReplyToAdminComment,
 } from "@/lib/outreachService";
 import { STAGES } from "@/constants/stages";
 import { LoginForm } from "@/components/LoginForm";
@@ -72,9 +74,81 @@ import {
 } from "@/lib/preferencesService";
 import { migrateLeadToBilling } from "@/lib/billingService";
 import { createDeliveryRecordFromLead } from "@/lib/deliveryService";
-import { Receipt, CheckCircle2, ArrowRight, X, Bell, ShieldAlert, MessageSquare, Truck } from "lucide-react";
+import {
+  Receipt,
+  CheckCircle2,
+  ArrowRight,
+  X,
+  Bell,
+  ShieldAlert,
+  MessageSquare,
+  Truck,
+  Reply,
+  CornerDownRight,
+  History,
+  Search,
+  SendHorizontal,
+  Check,
+  Clock,
+  Calendar,
+  AlertCircle,
+  CalendarClock,
+  Phone,
+  Mail,
+  Building2,
+  Sparkles,
+  ExternalLink,
+  ChevronRight,
+} from "lucide-react";
 import confetti from "canvas-confetti";
 import { useRef, useSyncExternalStore } from "react";
+
+const TAB_METADATA: Record<NavTab, { title: string; subtitle: string }> = {
+  kanban: {
+    title: "Pipeline Kanban Board",
+    subtitle: "Tracking deal progress, closures and client stages",
+  },
+  table: {
+    title: "Lead Directory & Records",
+    subtitle: "Structured table view of all qualified B2B prospects",
+  },
+  outreach: {
+    title: "Outreach Engine & Prospects",
+    subtitle: "Cold client outreach pipelines and automated follow-ups",
+  },
+  touchpoints: {
+    title: "Touchpoint Journey & History",
+    subtitle: "Audit trail of all client engagements, notes and meetings",
+  },
+  delivery: {
+    title: "Delivery & Payment Milestones",
+    subtitle: "Project execution milestones and tenure payment schedules",
+  },
+  billing: {
+    title: "Billing & Invoices",
+    subtitle: "Collections ledger, payment terms and financial paperwork",
+  },
+  analytics: {
+    title: "Executive Revenue Analytics",
+    subtitle: "Comprehensive pipeline velocity and financial forecasts",
+  },
+  email: {
+    title: "Campaigns & Email Sequences",
+    subtitle: "Direct outreach campaigns and custom email templates",
+  },
+  prospector: {
+    title: "AI B2B Prospector",
+    subtitle: "Intelligent lead discovery and market prospecting tools",
+  },
+  library: {
+    title: "Digital Collateral & Library",
+    subtitle: "Case studies, pitch decks and sales enablement assets",
+  },
+  developer: {
+    title: "Developer System Console",
+    subtitle: "System diagnostics, data schemas and integration health",
+  },
+};
 
 const emptySubscribe = () => () => {};
 
@@ -115,6 +189,32 @@ export default function Home() {
     currentUser?.username.toLowerCase() === "accounts" ||
     currentUser?.role.toLowerCase().includes("accounts")
   );
+
+  // 2-Second Money.json initial page loading state
+  const [isInitialPageLoading, setIsInitialPageLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialPageLoading(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 2-Second Money.json tab transition state
+  const tabTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [tabLoadingState, setTabLoadingState] = useState<{
+    tab: NavTab;
+    title: string;
+    subtitle: string;
+  } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (tabTimerRef.current) {
+        clearTimeout(tabTimerRef.current);
+      }
+    };
+  }, []);
 
   // Track if user explicitly clicked/changed tabs or if initial tab was restored
   const userHasChangedTabRef = useRef<boolean>(false);
@@ -167,6 +267,10 @@ export default function Home() {
     }
     setCurrentUser(user);
     setIsAuthenticated(true);
+    setIsInitialPageLoading(true);
+    setTimeout(() => {
+      setIsInitialPageLoading(false);
+    }, 2000);
     if (
       user.username.toLowerCase() === "accounts" ||
       user.role.toLowerCase().includes("accounts")
@@ -256,12 +360,36 @@ export default function Home() {
     if (tab === "developer" && !isAdmin) {
       return;
     }
+    if (tab === activeTab && !tabLoadingState) {
+      return;
+    }
     userHasChangedTabRef.current = true;
     initialTabLoadedRef.current = true;
+
+    const meta = TAB_METADATA[tab] || {
+      title: `Switching to ${tab.toUpperCase()}...`,
+      subtitle: "Loading workspace module and records",
+    };
+
+    // Trigger Money.json transition with exactly 2-second timer
+    setTabLoadingState({
+      tab,
+      title: meta.title,
+      subtitle: meta.subtitle,
+    });
+
     setActiveTab(tab);
     if (currentUser) {
       saveUserPreferencesToFirestore(currentUser.username, { activeTab: tab });
     }
+
+    if (tabTimerRef.current) {
+      clearTimeout(tabTimerRef.current);
+    }
+
+    tabTimerRef.current = setTimeout(() => {
+      setTabLoadingState(null);
+    }, 2000);
   };
 
   const handleSearchChange = (term: string) => {
@@ -859,10 +987,278 @@ export default function Home() {
     await markAdminCommentRead(clientId, commentId);
   };
 
+  const handleReplyToAdminComment = async (
+    clientId: string,
+    commentId: string,
+    replyText: string
+  ) => {
+    if (!currentUser) return;
+    await addReplyToAdminComment(clientId, commentId, replyText, currentUser);
+  };
+
   // Outreach selected client & Screen Notifications state
   const [selectedOutreachClientId, setSelectedOutreachClientId] = useState<string | null>(null);
   const [dismissedDirectiveIds, setDismissedDirectiveIds] = useState<string[]>([]);
+  const [dismissedFollowupReminderIds, setDismissedFollowupReminderIds] = useState<string[]>([]);
+  const [isFloatingFollowupDismissed, setIsFloatingFollowupDismissed] = useState<boolean>(false);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [notificationCenterTab, setNotificationCenterTab] = useState<"followups" | "directives" | "history">("followups");
+  const [followupFilterTab, setFollowupFilterTab] = useState<"all" | "today" | "overdue" | "upcoming">("all");
+  const [followupSearch, setFollowupSearch] = useState("");
+  const [activeInlineReplyId, setActiveInlineReplyId] = useState<string | null>(null);
+  const [inlineReplyText, setInlineReplyText] = useState("");
+  const [isSubmittingInlineReply, setIsSubmittingInlineReply] = useState(false);
+  const [notificationHistorySearch, setNotificationHistorySearch] = useState("");
+
+  // Upcoming Follow-up Reminders for Outreach Clients and Pipeline Leads
+  const followupReminders = useMemo(() => {
+    if (!currentUser) return [];
+    const uName = (currentUser.name || "").toLowerCase().trim();
+    const uUser = (currentUser.username || "").toLowerCase().trim();
+    const isUserAdmin =
+      currentUser.username.toLowerCase() === "admin" ||
+      currentUser.role.toLowerCase().includes("admin");
+
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    const list: Array<{
+      id: string;
+      sourceType: "outreach" | "pipeline";
+      companyName: string;
+      companyLogo?: string;
+      contactName: string;
+      contactEmail?: string;
+      contactPhone?: string;
+      designation?: string;
+      owner: string;
+      followUpDate: string;
+      followUpTime?: string;
+      statusBadge: string;
+      notes?: string;
+      urgency: "overdue" | "due_today" | "due_tomorrow" | "upcoming";
+      urgencyLabel: string;
+      daysDiff: number;
+      rawItem: ColdClient | Lead;
+    }> = [];
+
+    // 1. Outreach follow-ups
+    for (const client of coldClients) {
+      if (client.status === "converted" || client.status === "not_interested") continue;
+
+      const owner = (client.owner || "").toLowerCase().trim();
+      const isOwner =
+        owner === uName ||
+        owner === uUser ||
+        (uName.length > 0 && (owner.includes(uName) || uName.includes(owner))) ||
+        (uUser.length > 0 && (owner.includes(uUser) || uUser.includes(owner)));
+
+      if (!isOwner && !isUserAdmin) continue;
+
+      if (client.nextFollowUpDate && client.nextFollowUpDate.trim() !== "") {
+        const dateStr = client.nextFollowUpDate.slice(0, 10);
+        const targetDate = new Date(dateStr + "T00:00:00");
+        const currentDate = new Date(todayStr + "T00:00:00");
+        const diffDays = Math.round((targetDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        let urgency: "overdue" | "due_today" | "due_tomorrow" | "upcoming" = "upcoming";
+        let urgencyLabel = `In ${diffDays} days`;
+
+        if (diffDays < 0) {
+          urgency = "overdue";
+          urgencyLabel = `${Math.abs(diffDays)}d Overdue`;
+        } else if (diffDays === 0) {
+          urgency = "due_today";
+          urgencyLabel = "Due Today";
+        } else if (diffDays === 1) {
+          urgency = "due_tomorrow";
+          urgencyLabel = "Due Tomorrow";
+        }
+
+        const lastTouchpoint = Array.isArray(client.touchpoints) && client.touchpoints.length > 0
+          ? client.touchpoints[client.touchpoints.length - 1]
+          : null;
+
+        list.push({
+          id: client.id,
+          sourceType: "outreach",
+          companyName: client.companyName,
+          companyLogo: client.companyLogo,
+          contactName: client.contactName,
+          contactEmail: client.email,
+          contactPhone: client.phone,
+          designation: client.designation,
+          owner: client.owner || "Unassigned",
+          followUpDate: dateStr,
+          followUpTime: client.nextFollowUpTime,
+          statusBadge: client.status.replace(/_/g, " ").toUpperCase(),
+          notes: client.notes || lastTouchpoint?.summary || "",
+          urgency,
+          urgencyLabel,
+          daysDiff: diffDays,
+          rawItem: client,
+        });
+      }
+    }
+
+    // 2. Pipeline leads with expected target closing date upcoming / overdue
+    for (const lead of leads) {
+      if (lead.stage === "closure" || lead.stage === "closed_lost") continue;
+
+      const owner = (lead.owner || "").toLowerCase().trim();
+      const isOwner =
+        owner === uName ||
+        owner === uUser ||
+        (uName.length > 0 && (owner.includes(uName) || uName.includes(owner))) ||
+        (uUser.length > 0 && (owner.includes(uUser) || uUser.includes(owner)));
+
+      if (!isOwner && !isUserAdmin) continue;
+
+      if (lead.expectedCloseDate && lead.expectedCloseDate.trim() !== "") {
+        const dateStr = lead.expectedCloseDate.slice(0, 10);
+        const targetDate = new Date(dateStr + "T00:00:00");
+        const currentDate = new Date(todayStr + "T00:00:00");
+        const diffDays = Math.round((targetDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (diffDays <= 14) {
+          let urgency: "overdue" | "due_today" | "due_tomorrow" | "upcoming" = "upcoming";
+          let urgencyLabel = `In ${diffDays} days`;
+
+          if (diffDays < 0) {
+            urgency = "overdue";
+            urgencyLabel = `${Math.abs(diffDays)}d Overdue`;
+          } else if (diffDays === 0) {
+            urgency = "due_today";
+            urgencyLabel = "Closing Today";
+          } else if (diffDays === 1) {
+            urgency = "due_tomorrow";
+            urgencyLabel = "Closing Tomorrow";
+          }
+
+          list.push({
+            id: lead.id,
+            sourceType: "pipeline",
+            companyName: lead.companyName,
+            companyLogo: lead.companyLogo,
+            contactName: lead.contactName,
+            contactEmail: lead.contactEmail,
+            contactPhone: lead.contactPhone,
+            designation: lead.designation,
+            owner: lead.owner || "Unassigned",
+            followUpDate: dateStr,
+            statusBadge: `${lead.stage.toUpperCase()} (${lead.weightage}%)`,
+            notes: lead.notes || "",
+            urgency,
+            urgencyLabel,
+            daysDiff: diffDays,
+            rawItem: lead,
+          });
+        }
+      }
+    }
+
+    return list.sort((a, b) => {
+      const order = { overdue: 0, due_today: 1, due_tomorrow: 2, upcoming: 3 };
+      if (order[a.urgency] !== order[b.urgency]) {
+        return order[a.urgency] - order[b.urgency];
+      }
+      return a.daysDiff - b.daysDiff;
+    });
+  }, [coldClients, leads, currentUser]);
+
+  const dueTodayFollowups = useMemo(() => {
+    return followupReminders.filter((f) => f.urgency === "due_today");
+  }, [followupReminders]);
+
+  const overdueFollowups = useMemo(() => {
+    return followupReminders.filter((f) => f.urgency === "overdue");
+  }, [followupReminders]);
+
+  const upcomingFollowupsOnly = useMemo(() => {
+    return followupReminders.filter((f) => f.urgency === "due_tomorrow" || f.urgency === "upcoming");
+  }, [followupReminders]);
+
+  const urgentFollowupsCount = dueTodayFollowups.length + overdueFollowups.length;
+
+  const activeFloatingFollowup = useMemo(() => {
+    if (isFloatingFollowupDismissed) return null;
+    return (
+      dueTodayFollowups.find((f) => !dismissedFollowupReminderIds.includes(f.id)) ||
+      overdueFollowups.find((f) => !dismissedFollowupReminderIds.includes(f.id)) ||
+      null
+    );
+  }, [dueTodayFollowups, overdueFollowups, dismissedFollowupReminderIds, isFloatingFollowupDismissed]);
+
+  const displayedFollowups = useMemo(() => {
+    let res = followupReminders;
+    if (followupFilterTab === "today") {
+      res = res.filter((f) => f.urgency === "due_today");
+    } else if (followupFilterTab === "overdue") {
+      res = res.filter((f) => f.urgency === "overdue");
+    } else if (followupFilterTab === "upcoming") {
+      res = res.filter((f) => f.urgency === "due_tomorrow" || f.urgency === "upcoming");
+    }
+    if (followupSearch.trim()) {
+      const q = followupSearch.toLowerCase().trim();
+      res = res.filter(
+        (f) =>
+          f.companyName.toLowerCase().includes(q) ||
+          f.contactName.toLowerCase().includes(q) ||
+          (f.notes && f.notes.toLowerCase().includes(q))
+      );
+    }
+    return res;
+  }, [followupReminders, followupFilterTab, followupSearch]);
+
+  // Compute all leadership directives (both read and unread, plus replies) for notification history
+  const allAdminDirectives = useMemo(() => {
+    if (!currentUser) return [];
+    const uName = (currentUser.name || "").toLowerCase().trim();
+    const uUser = (currentUser.username || "").toLowerCase().trim();
+    const isUserAdmin =
+      currentUser.username.toLowerCase() === "admin" ||
+      currentUser.role.toLowerCase().includes("admin");
+
+    const list: Array<{
+      clientId: string;
+      client: ColdClient;
+      comment: AdminComment;
+    }> = [];
+
+    for (const client of coldClients) {
+      const owner = (client.owner || "").toLowerCase().trim();
+      const isOwner =
+        owner === uName ||
+        owner === uUser ||
+        (uName.length > 0 && (owner.includes(uName) || uName.includes(owner))) ||
+        (uUser.length > 0 && (owner.includes(uUser) || uUser.includes(owner)));
+
+      if ((isOwner || isUserAdmin) && Array.isArray(client.adminComments)) {
+        for (const cm of client.adminComments) {
+          list.push({ clientId: client.id, client, comment: cm });
+        }
+      }
+    }
+
+    return list.sort(
+      (a, b) => new Date(b.comment.createdAt).getTime() - new Date(a.comment.createdAt).getTime()
+    );
+  }, [coldClients, currentUser]);
+
+  // Filtered history based on search query
+  const filteredHistoryDirectives = useMemo(() => {
+    if (!notificationHistorySearch.trim()) return allAdminDirectives;
+    const term = notificationHistorySearch.toLowerCase().trim();
+    return allAdminDirectives.filter((d) => {
+      const company = (d.client.companyName || "").toLowerCase();
+      const comment = (d.comment.comment || "").toLowerCase();
+      const author = (d.comment.author || "").toLowerCase();
+      const hasMatchingReply = Array.isArray(d.comment.replies) && d.comment.replies.some(
+        (r) => r.reply.toLowerCase().includes(term) || r.author.toLowerCase().includes(term)
+      );
+      return company.includes(term) || comment.includes(term) || author.includes(term) || hasMatchingReply;
+    });
+  }, [allAdminDirectives, notificationHistorySearch]);
 
   // Compute unread leadership directives for currentUser's owned leads
   const unreadAdminDirectives = useMemo(() => {
@@ -895,6 +1291,8 @@ export default function Home() {
 
     return list;
   }, [coldClients, currentUser]);
+
+  const totalNotificationsCount = unreadAdminDirectives.length + urgentFollowupsCount;
 
   const activeFloatingDirective = useMemo(() => {
     return unreadAdminDirectives.find((d) => !dismissedDirectiveIds.includes(d.comment.id)) || null;
@@ -931,8 +1329,16 @@ export default function Home() {
   // Alias for backward compatibility
   const handleMoveLeadToBilling = handleSendToDelivery;
 
-  if (!isClient) {
-    return <SpringPortalLoader text="Initializing xMonks B2B Workspace..." />;
+  if (!isClient || isInitialPageLoading) {
+    return (
+      <MoneyLottieLoader
+        mode="fullscreen"
+        title="Loading xMonks B2B Workspace..."
+        subtitle="Synchronizing live pipeline, revenue & financials"
+        durationMs={2000}
+        onComplete={() => setIsInitialPageLoading(false)}
+      />
+    );
   }
 
   if (!isAuthenticated) {
@@ -975,109 +1381,666 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Notification Center Trigger */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsNotificationCenterOpen(!isNotificationCenterOpen)}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  unreadAdminDirectives.length > 0
-                    ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 ring-2 ring-amber-400/20"
-                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-                }`}
-                title="Leadership Directives & Notifications"
-              >
-                <Bell className={`w-3.5 h-3.5 ${unreadAdminDirectives.length > 0 ? "text-amber-600 dark:text-amber-400 animate-bounce" : ""}`} />
-                <span className="hidden sm:inline">Admin Directives</span>
-                {unreadAdminDirectives.length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs">
-                    {unreadAdminDirectives.length}
+            {/* Right: Live Follow-up Reminder Pill + Notifications Trigger */}
+            <div className="flex items-center space-x-2.5">
+              {/* On-Screen Follow-up Alert Pill (Live Header Reminder) */}
+              {followupReminders.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNotificationCenterOpen(true);
+                    setNotificationCenterTab("followups");
+                    if (dueTodayFollowups.length > 0) setFollowupFilterTab("today");
+                    else if (overdueFollowups.length > 0) setFollowupFilterTab("overdue");
+                    else setFollowupFilterTab("all");
+                  }}
+                  className={`hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border shadow-xs ${
+                    dueTodayFollowups.length > 0
+                      ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 animate-pulse ring-2 ring-amber-400/20"
+                      : overdueFollowups.length > 0
+                      ? "bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-300 ring-2 ring-rose-400/20"
+                      : "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300"
+                  }`}
+                  title="Click to view follow-up schedule & reminders"
+                >
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {dueTodayFollowups.length > 0
+                      ? `${dueTodayFollowups.length} Due Today`
+                      : overdueFollowups.length > 0
+                      ? `${overdueFollowups.length} Overdue`
+                      : `${upcomingFollowupsOnly.length} Upcoming`}
                   </span>
-                )}
-              </button>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white/70 dark:bg-slate-900/70 font-black">
+                    Follow-ups
+                  </span>
+                </button>
+              )}
 
-              {/* Notification Center Dropdown */}
-              {isNotificationCenterOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 z-50 space-y-3 animate-in fade-in zoom-in-95">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <ShieldAlert className="w-4 h-4 text-amber-500" />
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                        Admin Directives ({unreadAdminDirectives.length})
-                      </h4>
-                    </div>
-                    {unreadAdminDirectives.length > 0 && (
+              {/* Notification Center Trigger */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsNotificationCenterOpen(!isNotificationCenterOpen)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    totalNotificationsCount > 0
+                      ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 ring-2 ring-amber-400/20"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  }`}
+                  title="Notifications & Upcoming Follow-up Reminders"
+                >
+                  <Bell className={`w-3.5 h-3.5 ${totalNotificationsCount > 0 ? "text-amber-600 dark:text-amber-400 animate-bounce" : ""}`} />
+                  <span className="hidden sm:inline">Notifications</span>
+                  {totalNotificationsCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs">
+                      {totalNotificationsCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notification Center Dropdown */}
+                {isNotificationCenterOpen && (
+                  <div className="absolute right-0 mt-2 w-[350px] sm:w-[500px] max-w-[95vw] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 z-50 space-y-3 animate-in fade-in zoom-in-95">
+                    {/* Dropdown Header */}
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                          <Bell className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                            Notifications & Reminders
+                          </h4>
+                          <p className="text-[10px] text-slate-500">
+                            Upcoming follow-ups, leadership directives & activity history
+                          </p>
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        onClick={async () => {
-                          for (const d of unreadAdminDirectives) {
-                            await handleMarkOutreachAdminCommentRead(d.clientId, d.comment.id);
-                          }
-                        }}
-                        className="text-[10px] text-amber-600 hover:text-amber-700 font-bold cursor-pointer underline"
+                        onClick={() => setIsNotificationCenterOpen(false)}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                       >
-                        Mark all as read
+                        <X className="w-4 h-4" />
                       </button>
-                    )}
-                  </div>
+                    </div>
 
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {unreadAdminDirectives.length === 0 ? (
-                      <div className="py-6 text-center text-xs text-slate-400">
-                        <CheckCircle2 className="w-6 h-6 mx-auto mb-1 text-emerald-500" />
-                        <p className="font-semibold text-slate-600 dark:text-slate-300">All caught up!</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">No pending leadership directives on your leads.</p>
-                      </div>
-                    ) : (
-                      unreadAdminDirectives.map((d) => (
-                        <div
-                          key={d.comment.id}
-                          className="p-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/60 dark:bg-amber-950/30 text-xs space-y-1.5 hover:border-amber-400 transition"
-                        >
-                          <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
-                            <span className="truncate">{d.client.companyName}</span>
-                            <span className="text-[10px] text-slate-400 font-normal">
-                              {new Date(d.comment.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
-                            </span>
+                    {/* Notification Center Tabs */}
+                    <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl text-xs gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setNotificationCenterTab("followups")}
+                        className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                          notificationCenterTab === "followups"
+                            ? "bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                      >
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Follow-ups</span>
+                        {urgentFollowupsCount > 0 ? (
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-white">
+                            {urgentFollowupsCount}
+                          </span>
+                        ) : followupReminders.length > 0 ? (
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                            {followupReminders.length}
+                          </span>
+                        ) : null}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setNotificationCenterTab("directives")}
+                        className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                          notificationCenterTab === "directives"
+                            ? "bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        <span>Directives</span>
+                        {unreadAdminDirectives.length > 0 && (
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-white">
+                            {unreadAdminDirectives.length}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setNotificationCenterTab("history")}
+                        className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                          notificationCenterTab === "history"
+                            ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        <span>History</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                          {allAdminDirectives.length}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* TAB: FOLLOW-UP REMINDERS */}
+                    {notificationCenterTab === "followups" && (
+                      <div className="space-y-2.5">
+                        {/* Sub-Filter Chips */}
+                        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setFollowupFilterTab("all")}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                                followupFilterTab === "all"
+                                  ? "bg-indigo-600 text-white"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                              }`}
+                            >
+                              All ({followupReminders.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFollowupFilterTab("today")}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                                followupFilterTab === "today"
+                                  ? "bg-amber-500 text-white"
+                                  : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                              }`}
+                            >
+                              Today ({dueTodayFollowups.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFollowupFilterTab("overdue")}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                                followupFilterTab === "overdue"
+                                  ? "bg-rose-500 text-white"
+                                  : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800"
+                              }`}
+                            >
+                              Overdue ({overdueFollowups.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFollowupFilterTab("upcoming")}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                                followupFilterTab === "upcoming"
+                                  ? "bg-blue-600 text-white"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                              }`}
+                            >
+                              Upcoming ({upcomingFollowupsOnly.length})
+                            </button>
                           </div>
-                          <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed italic">
-                            "{d.comment.comment}"
-                          </p>
-                          <div className="flex items-center justify-between pt-1">
-                            <span className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold">
-                              From: {d.comment.author}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  await handleMarkOutreachAdminCommentRead(d.clientId, d.comment.id);
-                                }}
-                                className="text-[10px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                              >
-                                Mark Read
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedOutreachClientId(d.clientId);
-                                  handleTabChange("outreach");
-                                  setIsNotificationCenterOpen(false);
-                                }}
-                                className="px-2 py-0.5 text-[10px] font-bold bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer"
-                              >
-                                View Lead
-                              </button>
-                            </div>
-                          </div>
+
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            {displayedFollowups.length} scheduled
+                          </span>
                         </div>
-                      ))
+
+                        {/* Search input if > 3 follow-ups */}
+                        {followupReminders.length > 3 && (
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+                            <input
+                              type="text"
+                              value={followupSearch}
+                              onChange={(e) => setFollowupSearch(e.target.value)}
+                              placeholder="Search follow-up company or notes..."
+                              className="w-full pl-8 pr-3 py-1 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+                        )}
+
+                        {/* Follow-ups List */}
+                        <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                          {displayedFollowups.length === 0 ? (
+                            <div className="py-8 text-center text-xs text-slate-400 space-y-1">
+                              <CheckCircle2 className="w-7 h-7 mx-auto text-emerald-500" />
+                              <p className="font-bold text-slate-700 dark:text-slate-200">
+                                No follow-up reminders pending!
+                              </p>
+                              <p className="text-[11px] text-slate-400">
+                                You are completely on track with your upcoming outreach schedule.
+                              </p>
+                            </div>
+                          ) : (
+                            displayedFollowups.map((f) => (
+                              <div
+                                key={`${f.sourceType}-${f.id}`}
+                                className={`p-3 rounded-2xl border text-xs space-y-2 transition ${
+                                  f.urgency === "overdue"
+                                    ? "border-rose-300 dark:border-rose-800/80 bg-rose-50/60 dark:bg-rose-950/20"
+                                    : f.urgency === "due_today"
+                                    ? "border-amber-300 dark:border-amber-700/80 bg-amber-50/70 dark:bg-amber-950/30"
+                                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex items-center space-x-2">
+                                    {f.companyLogo ? (
+                                      <img
+                                        src={f.companyLogo}
+                                        alt={f.companyName}
+                                        className="w-6 h-6 rounded-md object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-0.5 shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-6 h-6 rounded-md bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-black text-[10px] flex items-center justify-center border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                        {f.companyName.slice(0, 2).toUpperCase()}
+                                      </div>
+                                    )}
+                                    <div>
+                                      <h5 className="font-black text-slate-900 dark:text-white text-xs truncate max-w-[200px]">
+                                        {f.companyName}
+                                      </h5>
+                                      <div className="text-[10px] text-slate-500 flex items-center space-x-1.5">
+                                        <span>{f.contactName}</span>
+                                        {f.designation && <span>• {f.designation}</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Urgency Badge */}
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-black whitespace-nowrap ${
+                                      f.urgency === "overdue"
+                                        ? "bg-rose-500 text-white"
+                                        : f.urgency === "due_today"
+                                        ? "bg-amber-500 text-white"
+                                        : "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300"
+                                    }`}
+                                  >
+                                    {f.urgencyLabel}
+                                  </span>
+                                </div>
+
+                                {/* Schedule time & Source */}
+                                <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50/80 dark:bg-slate-900/60 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                  <div className="flex items-center space-x-1.5">
+                                    <Calendar className="w-3 h-3 text-slate-400" />
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                                      {f.followUpDate}
+                                    </span>
+                                    {f.followUpTime && (
+                                      <>
+                                        <span>•</span>
+                                        <Clock className="w-3 h-3 text-slate-400" />
+                                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                          {f.followUpTime}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                    {f.sourceType === "outreach" ? "Outreach" : "Pipeline"}
+                                  </span>
+                                </div>
+
+                                {f.notes && (
+                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 italic line-clamp-2 bg-white/50 dark:bg-slate-900/40 p-1.5 rounded-lg border border-slate-100 dark:border-slate-800/60">
+                                    "{f.notes}"
+                                  </p>
+                                )}
+
+                                {/* Action Buttons */}
+                                <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
+                                  <div className="flex items-center space-x-2 text-[10px] text-slate-400">
+                                    {f.contactPhone && (
+                                      <span className="flex items-center gap-1">
+                                        <Phone className="w-2.5 h-2.5" /> {f.contactPhone}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (f.sourceType === "outreach") {
+                                        setSelectedOutreachClientId(f.id);
+                                        handleTabChange("outreach");
+                                      } else {
+                                        setSelectedLead(f.rawItem as Lead);
+                                      }
+                                      setIsNotificationCenterOpen(false);
+                                    }}
+                                    className="px-2.5 py-1 text-[11px] font-black bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow-xs flex items-center space-x-1 cursor-pointer"
+                                  >
+                                    <span>Open {f.sourceType === "outreach" ? "Outreach" : "Lead"}</span>
+                                    <ArrowRight className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
                     )}
-                  </div>
+
+                  {/* Tab 2: Admin Directives */}
+                  {notificationCenterTab === "directives" && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] px-1 text-slate-500">
+                        <span>{unreadAdminDirectives.length} unread directive(s)</span>
+                        {unreadAdminDirectives.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              for (const d of unreadAdminDirectives) {
+                                await handleMarkOutreachAdminCommentRead(d.clientId, d.comment.id);
+                              }
+                            }}
+                            className="text-[10px] text-amber-600 hover:text-amber-700 dark:text-amber-400 font-bold cursor-pointer underline"
+                          >
+                            Mark all as read
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                        {unreadAdminDirectives.length === 0 ? (
+                          <div className="py-8 text-center text-xs text-slate-400 space-y-1">
+                            <CheckCircle2 className="w-7 h-7 mx-auto text-emerald-500" />
+                            <p className="font-bold text-slate-700 dark:text-slate-200">All caught up!</p>
+                            <p className="text-[11px] text-slate-400">
+                              No unread leadership directives pending your review.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setNotificationCenterTab("history")}
+                              className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                            >
+                              <History className="w-3 h-3" /> View past notifications & replies
+                            </button>
+                          </div>
+                        ) : (
+                          unreadAdminDirectives.map((d) => (
+                            <div
+                              key={d.comment.id}
+                              className="p-3 rounded-2xl border border-amber-300 dark:border-amber-700/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs space-y-2 hover:border-amber-400 transition"
+                            >
+                              <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
+                                <span className="truncate max-w-[220px] text-amber-950 dark:text-amber-100 font-extrabold">
+                                  {d.client.companyName}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-normal">
+                                  {new Date(d.comment.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-800 dark:text-slate-200 leading-relaxed italic bg-white/70 dark:bg-slate-900/60 p-2 rounded-xl border border-amber-200/50 dark:border-amber-900/40">
+                                "{d.comment.comment}"
+                              </p>
+
+                              {/* Previous Replies if any */}
+                              {Array.isArray(d.comment.replies) && d.comment.replies.length > 0 && (
+                                <div className="space-y-1 pl-2 border-l-2 border-indigo-400">
+                                  {d.comment.replies.map((rp) => (
+                                    <div key={rp.id} className="text-[10px] text-slate-600 dark:text-slate-300">
+                                      <strong className="text-indigo-600 dark:text-indigo-400">{rp.author}:</strong> {rp.reply}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between pt-1 border-t border-amber-200/40 dark:border-amber-800/40">
+                                <span className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold">
+                                  From: {d.comment.author}
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveInlineReplyId(activeInlineReplyId === d.comment.id ? null : d.comment.id);
+                                      setInlineReplyText("");
+                                    }}
+                                    className="px-2 py-1 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Reply className="w-2.5 h-2.5" />
+                                    <span>Reply</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      await handleMarkOutreachAdminCommentRead(d.clientId, d.comment.id);
+                                    }}
+                                    className="px-2 py-1 text-[10px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                                  >
+                                    Mark Read
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedOutreachClientId(d.clientId);
+                                      handleTabChange("outreach");
+                                      setIsNotificationCenterOpen(false);
+                                    }}
+                                    className="px-2 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer"
+                                  >
+                                    View Lead
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Inline Reply Input */}
+                              {activeInlineReplyId === d.comment.id && (
+                                <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 space-y-1.5 animate-in fade-in">
+                                  <textarea
+                                    rows={2}
+                                    value={inlineReplyText}
+                                    onChange={(e) => setInlineReplyText(e.target.value)}
+                                    placeholder={`Reply to ${d.comment.author}...`}
+                                    className="w-full p-2 text-xs rounded-xl border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none placeholder:text-slate-400"
+                                  />
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveInlineReplyId(null)}
+                                      className="px-2 py-1 text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={!inlineReplyText.trim() || isSubmittingInlineReply}
+                                      onClick={async () => {
+                                        try {
+                                          setIsSubmittingInlineReply(true);
+                                          await handleReplyToAdminComment(d.clientId, d.comment.id, inlineReplyText.trim());
+                                          setInlineReplyText("");
+                                          setActiveInlineReplyId(null);
+                                        } catch (e) {
+                                          console.error(e);
+                                        } finally {
+                                          setIsSubmittingInlineReply(false);
+                                        }
+                                      }}
+                                      className="px-2.5 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <SendHorizontal className="w-2.5 h-2.5" />
+                                      <span>{isSubmittingInlineReply ? "Sending..." : "Send Reply"}</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tab 2: Notification History & Replies */}
+                  {notificationCenterTab === "history" && (
+                    <div className="space-y-2.5">
+                      {/* Search in History */}
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={notificationHistorySearch}
+                          onChange={(e) => setNotificationHistorySearch(e.target.value)}
+                          placeholder="Search notifications history or replies..."
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+
+                      <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                        {filteredHistoryDirectives.length === 0 ? (
+                          <div className="py-8 text-center text-xs text-slate-400">
+                            <History className="w-7 h-7 mx-auto text-slate-400 mb-1" />
+                            <p className="font-semibold text-slate-600 dark:text-slate-300">No notifications found</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {notificationHistorySearch ? "No matches for your search." : "No past directives logged yet."}
+                            </p>
+                          </div>
+                        ) : (
+                          filteredHistoryDirectives.map((d) => {
+                            const hasReplies = Array.isArray(d.comment.replies) && d.comment.replies.length > 0;
+                            return (
+                              <div
+                                key={d.comment.id}
+                                className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs space-y-2 shadow-2xs"
+                              >
+                                <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
+                                  <div className="flex items-center gap-1.5 truncate max-w-[240px]">
+                                    <span className="truncate font-extrabold text-slate-900 dark:text-slate-100">
+                                      {d.client.companyName}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {hasReplies ? (
+                                      <span className="px-1.5 py-0.2 rounded-md text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                        Replied ({d.comment.replies!.length})
+                                      </span>
+                                    ) : d.comment.readByOwner ? (
+                                      <span className="px-1.5 py-0.2 rounded-md text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-0.5">
+                                        <Check className="w-2.5 h-2.5" /> Read
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.2 rounded-md text-[9px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                        Unread
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-100 dark:border-slate-800 text-[11px] text-slate-800 dark:text-slate-200 leading-relaxed">
+                                  "{d.comment.comment}"
+                                </div>
+
+                                {/* Threaded Replies in History */}
+                                {hasReplies && (
+                                  <div className="space-y-1.5 pl-2.5 border-l-2 border-indigo-400">
+                                    <div className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
+                                      <CornerDownRight className="w-3 h-3 text-indigo-500" />
+                                      <span>Replies</span>
+                                    </div>
+                                    {d.comment.replies!.map((rp) => (
+                                      <div
+                                        key={rp.id}
+                                        className="bg-indigo-50/50 dark:bg-indigo-950/30 p-2 rounded-lg border border-indigo-100 dark:border-indigo-900/40 text-[10px] space-y-0.5"
+                                      >
+                                        <div className="flex items-center justify-between text-[9px]">
+                                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                                            {rp.author} <span className="font-normal text-slate-400">({rp.authorRole || "User"})</span>
+                                          </span>
+                                          <span className="text-slate-400 font-mono">
+                                            {new Date(rp.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + new Date(rp.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                                          </span>
+                                        </div>
+                                        <p className="text-slate-700 dark:text-slate-300 text-[11px]">
+                                          {rp.reply}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px]">
+                                  <span className="text-slate-400">
+                                    From {d.comment.author} • {new Date(d.comment.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveInlineReplyId(activeInlineReplyId === d.comment.id ? null : d.comment.id);
+                                        setInlineReplyText("");
+                                      }}
+                                      className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-md border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Reply className="w-2.5 h-2.5" />
+                                      <span>Reply</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedOutreachClientId(d.clientId);
+                                        handleTabChange("outreach");
+                                        setIsNotificationCenterOpen(false);
+                                      }}
+                                      className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md cursor-pointer"
+                                    >
+                                      View Lead
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Inline reply inside history */}
+                                {activeInlineReplyId === d.comment.id && (
+                                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1.5 animate-in fade-in">
+                                    <textarea
+                                      rows={2}
+                                      value={inlineReplyText}
+                                      onChange={(e) => setInlineReplyText(e.target.value)}
+                                      placeholder={`Write a reply to ${d.comment.author}...`}
+                                      className="w-full p-2 text-xs rounded-xl border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                                    />
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveInlineReplyId(null)}
+                                        className="px-2 py-1 text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={!inlineReplyText.trim() || isSubmittingInlineReply}
+                                        onClick={async () => {
+                                          try {
+                                            setIsSubmittingInlineReply(true);
+                                            await handleReplyToAdminComment(d.clientId, d.comment.id, inlineReplyText.trim());
+                                            setInlineReplyText("");
+                                            setActiveInlineReplyId(null);
+                                          } catch (e) {
+                                            console.error(e);
+                                          } finally {
+                                            setIsSubmittingInlineReply(false);
+                                          }
+                                        }}
+                                        className="px-2.5 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <SendHorizontal className="w-2.5 h-2.5" />
+                                        <span>{isSubmittingInlineReply ? "Sending..." : "Send Reply"}</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
+        </div>
 
         {/* KPI Dashboard Summary Bar & Filter Bar for Lead Management tabs */}
         {!isAccounts && (activeTab === "kanban" || activeTab === "table" || activeTab === "analytics") && (
@@ -1160,6 +2123,7 @@ export default function Home() {
             onFilteredCountChange={setOutreachFilteredCount}
             onAddAdminComment={handleAddOutreachAdminComment}
             onMarkAdminCommentRead={handleMarkOutreachAdminCommentRead}
+            onReplyToAdminComment={handleReplyToAdminComment}
             selectedClientId={selectedOutreachClientId}
             onSelectClientId={setSelectedOutreachClientId}
           />
@@ -1181,6 +2145,7 @@ export default function Home() {
             }}
             onAddAdminComment={handleAddOutreachAdminComment}
             onMarkAdminCommentRead={handleMarkOutreachAdminCommentRead}
+            onReplyToAdminComment={handleReplyToAdminComment}
           />
         )}
 
@@ -1232,6 +2197,7 @@ export default function Home() {
             allLeads={leads}
             currentUser={currentUser}
             isAdmin={isAdmin}
+            onSelectLead={(lead) => setSelectedLead(lead)}
           />
         )}
 
@@ -1319,8 +2285,21 @@ export default function Home() {
                 }}
                 className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold rounded-xl transition shadow flex items-center space-x-1 cursor-pointer"
               >
-                <span>View Lead in Outreach</span>
+                <span>View Lead</span>
                 <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInlineReplyId(
+                    activeInlineReplyId === activeFloatingDirective.comment.id ? null : activeFloatingDirective.comment.id
+                  );
+                  setInlineReplyText("");
+                }}
+                className="px-2.5 py-1.5 text-xs font-bold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 rounded-xl transition border border-indigo-500/30 flex items-center gap-1 cursor-pointer"
+              >
+                <Reply className="w-3 h-3" />
+                <span>Reply</span>
               </button>
               <button
                 type="button"
@@ -1332,9 +2311,56 @@ export default function Home() {
                 }}
                 className="px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
               >
-                Mark as Read
+                Mark Read
               </button>
             </div>
+
+            {/* Quick Inline Reply on Floating Toast */}
+            {activeInlineReplyId === activeFloatingDirective.comment.id && (
+              <div className="mt-2.5 pt-2 border-t border-slate-800 space-y-1.5 animate-in fade-in">
+                <textarea
+                  rows={2}
+                  value={inlineReplyText}
+                  onChange={(e) => setInlineReplyText(e.target.value)}
+                  placeholder={`Reply to ${activeFloatingDirective.comment.author}...`}
+                  className="w-full p-2 text-xs rounded-xl border border-indigo-500/40 bg-slate-900 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none placeholder:text-slate-500"
+                />
+                <div className="flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveInlineReplyId(null)}
+                    className="px-2 py-1 text-[10px] text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!inlineReplyText.trim() || isSubmittingInlineReply}
+                    onClick={async () => {
+                      try {
+                        setIsSubmittingInlineReply(true);
+                        await handleReplyToAdminComment(
+                          activeFloatingDirective.clientId,
+                          activeFloatingDirective.comment.id,
+                          inlineReplyText.trim()
+                        );
+                        setInlineReplyText("");
+                        setActiveInlineReplyId(null);
+                        setDismissedDirectiveIds((prev) => [...prev, activeFloatingDirective.comment.id]);
+                      } catch (e) {
+                        console.error(e);
+                      } finally {
+                        setIsSubmittingInlineReply(false);
+                      }
+                    }}
+                    className="px-3 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                  >
+                    <SendHorizontal className="w-2.5 h-2.5" />
+                    <span>{isSubmittingInlineReply ? "Sending..." : "Send Reply"}</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -1343,6 +2369,82 @@ export default function Home() {
             }}
             className="p-1 text-slate-400 hover:text-white rounded-lg transition cursor-pointer shrink-0"
             title="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Real-time Floating Upcoming Follow-up Reminder for Lead Owner */}
+      {activeFloatingFollowup && !isFloatingFollowupDismissed && (
+        <div
+          className={`fixed ${
+            activeFloatingDirective ? "bottom-56" : deliveryToast?.show ? "bottom-32" : "bottom-6"
+          } right-6 z-50 max-w-md w-full p-4 bg-slate-900/95 dark:bg-slate-900/95 text-white rounded-2xl shadow-2xl border border-indigo-500/50 backdrop-blur-md flex items-start space-x-3.5 animate-slideUp`}
+        >
+          <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/30 shrink-0 mt-0.5">
+            <Clock className="w-5 h-5 text-indigo-400 animate-pulse" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center space-x-1">
+                <Sparkles className="w-3 h-3" />
+                <span>Follow-up Reminder • {activeFloatingFollowup.urgencyLabel}</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-bold">
+                {activeFloatingFollowup.followUpDate}
+              </span>
+            </div>
+            <h4 className="text-sm font-bold text-white truncate mt-0.5">
+              {activeFloatingFollowup.companyName}
+            </h4>
+            <div className="text-xs text-slate-300 mt-0.5">
+              Contact: <strong className="text-white">{activeFloatingFollowup.contactName}</strong>
+              {activeFloatingFollowup.followUpTime && ` at ${activeFloatingFollowup.followUpTime}`}
+            </div>
+            {activeFloatingFollowup.notes && (
+              <p className="text-xs text-slate-300 mt-1 line-clamp-2 italic leading-snug bg-white/10 p-1.5 rounded-lg">
+                "{activeFloatingFollowup.notes}"
+              </p>
+            )}
+
+            <div className="flex items-center space-x-2 mt-3 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeFloatingFollowup.sourceType === "outreach") {
+                    setSelectedOutreachClientId(activeFloatingFollowup.id);
+                    handleTabChange("outreach");
+                  } else {
+                    setSelectedLead(activeFloatingFollowup.rawItem as Lead);
+                  }
+                  setDismissedFollowupReminderIds((prev) => [...prev, activeFloatingFollowup.id]);
+                }}
+                className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold rounded-xl transition shadow flex items-center space-x-1 cursor-pointer"
+              >
+                <span>Open {activeFloatingFollowup.sourceType === "outreach" ? "Lead" : "Pipeline"}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsNotificationCenterOpen(true);
+                  setNotificationCenterTab("followups");
+                }}
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
+              >
+                View Reminders
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDismissedFollowupReminderIds((prev) => [...prev, activeFloatingFollowup.id]);
+              setIsFloatingFollowupDismissed(true);
+            }}
+            className="p-1 text-slate-400 hover:text-white rounded-lg transition cursor-pointer shrink-0"
+            title="Dismiss reminder"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1416,6 +2518,17 @@ export default function Home() {
           </p>
         </footer>
       </div>
+
+      {/* 2-Second Money.json Tab Transition Loader Overlay */}
+      {tabLoadingState && (
+        <MoneyLottieLoader
+          mode="overlay"
+          title={tabLoadingState.title}
+          subtitle={tabLoadingState.subtitle}
+          durationMs={2000}
+          onComplete={() => setTabLoadingState(null)}
+        />
+      )}
     </div>
   );
 }

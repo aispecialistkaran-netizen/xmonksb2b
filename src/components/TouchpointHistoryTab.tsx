@@ -77,6 +77,7 @@ interface TouchpointHistoryTabProps {
   onSelectOutreachClient?: (clientId: string) => void;
   onAddAdminComment?: (clientId: string, commentText: string) => Promise<void>;
   onMarkAdminCommentRead?: (clientId: string, commentId: string) => Promise<void>;
+  onReplyToAdminComment?: (clientId: string, commentId: string, replyText: string) => Promise<void>;
 }
 
 function getChannelIcon(channel: string) {
@@ -112,6 +113,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
   onSelectOutreachClient,
   onAddAdminComment,
   onMarkAdminCommentRead,
+  onReplyToAdminComment,
 }) => {
   // Filter States
   const [searchTerm, setSearchTerm] = useState("");
@@ -1242,6 +1244,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
         currentUser={currentUser}
         onAddAdminComment={onAddAdminComment}
         onMarkAdminCommentRead={onMarkAdminCommentRead}
+        onReplyToAdminComment={onReplyToAdminComment}
       />
     </div>
   );

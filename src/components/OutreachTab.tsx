@@ -102,6 +102,7 @@ interface OutreachTabProps {
   onFilteredCountChange?: (count: number) => void;
   onAddAdminComment?: (clientId: string, commentText: string) => Promise<void>;
   onMarkAdminCommentRead?: (clientId: string, commentId: string) => Promise<void>;
+  onReplyToAdminComment?: (clientId: string, commentId: string, replyText: string) => Promise<void>;
   selectedClientId?: string | null;
   onSelectClientId?: (id: string | null) => void;
 }
@@ -319,6 +320,7 @@ export const OutreachTab: React.FC<OutreachTabProps> = ({
   onFilteredCountChange,
   onAddAdminComment,
   onMarkAdminCommentRead,
+  onReplyToAdminComment,
   selectedClientId,
   onSelectClientId,
 }) => {
@@ -1697,6 +1699,7 @@ export const OutreachTab: React.FC<OutreachTabProps> = ({
         onNavigateToEmail={onNavigateToEmailTab}
         onAddAdminComment={onAddAdminComment}
         onMarkAdminCommentRead={onMarkAdminCommentRead}
+        onReplyToAdminComment={onReplyToAdminComment}
       />
 
       {/* Quick Admin Directive Modal */}

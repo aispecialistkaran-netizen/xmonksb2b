@@ -10,7 +10,7 @@ import {
   orderBy,
   writeBatch,
 } from "firebase/firestore";
-import { ColdClient, OutreachTouchpoint, ColdClientStatus, OutreachChannel, AdminComment } from "@/types/outreach";
+import { ColdClient, OutreachTouchpoint, ColdClientStatus, OutreachChannel, AdminComment, AdminCommentReply } from "@/types/outreach";
 import { formatTimestamp, sanitizeForFirestore, createLead } from "./leadsService";
 import { UserAccount } from "@/constants/users";
 
@@ -689,4 +689,75 @@ export async function markAdminCommentRead(
   await updateColdClient(clientId, {
     adminComments: updatedComments,
   });
+}
+
+// Add Reply to an Admin Directive
+export async function addReplyToAdminComment(
+  clientId: string,
+  commentId: string,
+  replyText: string,
+  user: UserAccount
+): Promise<AdminCommentReply | null> {
+  const current = getStoredLocalColdClients();
+  const client = current.find((c) => c.id === clientId);
+  if (!client || !client.adminComments) return null;
+
+  const now = new Date();
+  const newReply: AdminCommentReply = {
+    id: "reply-" + Date.now(),
+    author: user.name || "User",
+    authorUsername: user.username || "user",
+    authorRole: user.role || "Lead Owner",
+    reply: replyText.trim(),
+    createdAt: now.toISOString(),
+  };
+
+  const targetDirective = client.adminComments.find((c) => c.id === commentId);
+
+  // Update directive replies and mark as read/acknowledged
+  const updatedComments = client.adminComments.map((c) => {
+    if (c.id === commentId) {
+      const existingReplies = Array.isArray(c.replies) ? c.replies : [];
+      return {
+        ...c,
+        readByOwner: true,
+        readAt: c.readAt || now.toISOString(),
+        replies: [...existingReplies, newReply],
+      };
+    }
+    return c;
+  });
+
+  // Also log an automated touchpoint note in Touchpoint History
+  const formattedDate = formatTimestamp(now);
+  const formattedTime = now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const directiveSummarySnippet = targetDirective?.comment
+    ? ` on Directive ("${targetDirective.comment.slice(0, 40)}${targetDirective.comment.length > 40 ? "..." : ""}")`
+    : "";
+
+  const touchpointNote: OutreachTouchpoint = {
+    id: "tp-reply-" + Date.now(),
+    timestamp: now.toISOString(),
+    formattedDate,
+    channel: "note",
+    summary: `Directive Reply (${user.name})${directiveSummarySnippet}: ${replyText.trim()}`,
+    author: user.name || "User",
+    time: formattedTime,
+    activityDate: now.toISOString().split("T")[0],
+  };
+
+  const updatedTouchpoints = [touchpointNote, ...(client.touchpoints || [])];
+
+  await updateColdClient(clientId, {
+    adminComments: updatedComments,
+    touchpoints: updatedTouchpoints,
+    updatedAt: now.toISOString(),
+  });
+
+  return newReply;
 }

@@ -36,6 +36,8 @@ import {
   SendHorizontal,
   Bell,
   Eye,
+  Reply,
+  CornerDownRight,
 } from "lucide-react";
 import { ColdClient, ColdClientStatus, OutreachChannel, OutreachTouchpoint, AdminComment } from "@/types/outreach";
 import { ContactPerson } from "@/types/lead";
@@ -179,6 +181,7 @@ interface ColdClientDetailModalProps {
   onNavigateToEmail?: (recipientEmail: string, recipientName: string, companyName: string) => void;
   onAddAdminComment?: (clientId: string, commentText: string) => Promise<void>;
   onMarkAdminCommentRead?: (clientId: string, commentId: string) => Promise<void>;
+  onReplyToAdminComment?: (clientId: string, commentId: string, replyText: string) => Promise<void>;
 }
 
 export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
@@ -193,6 +196,7 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
   onNavigateToEmail,
   onAddAdminComment,
   onMarkAdminCommentRead,
+  onReplyToAdminComment,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -505,6 +509,26 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
       console.error(err);
     } finally {
       setIsPostingComment(false);
+    }
+  };
+
+  // Directive Reply state
+  const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
+  const [replyTextMap, setReplyTextMap] = useState<Record<string, string>>({});
+  const [isSubmittingReply, setIsSubmittingReply] = useState<Record<string, boolean>>({});
+
+  const handleSendReply = async (commentId: string) => {
+    const text = replyTextMap[commentId]?.trim();
+    if (!text || !client || !onReplyToAdminComment) return;
+    try {
+      setIsSubmittingReply((prev) => ({ ...prev, [commentId]: true }));
+      await onReplyToAdminComment(client.id, commentId, text);
+      setReplyTextMap((prev) => ({ ...prev, [commentId]: "" }));
+      setActiveReplyCommentId(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingReply((prev) => ({ ...prev, [commentId]: false }));
     }
   };
 
@@ -1691,7 +1715,7 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
               )}
 
               {/* Existing Comments List */}
-              <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+              <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
                 {!client.adminComments || client.adminComments.length === 0 ? (
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 italic py-1 text-center">
                     No admin directives logged for this account yet.
@@ -1700,7 +1724,7 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
                   client.adminComments.map((cm) => (
                     <div
                       key={cm.id}
-                      className={`p-2.5 rounded-xl border text-xs space-y-1.5 transition-all ${
+                      className={`p-3 rounded-xl border text-xs space-y-2 transition-all ${
                         !cm.readByOwner && isOwner
                           ? "bg-amber-100/90 dark:bg-amber-950/60 border-amber-400 dark:border-amber-600 ring-2 ring-amber-400/20"
                           : "bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700/80"
@@ -1708,36 +1732,117 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
                     >
                       <div className="flex items-center justify-between gap-1 flex-wrap">
                         <span className="font-bold text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                          <ShieldAlert className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                          <ShieldAlert className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                           {cm.author} ({cm.authorRole || "Admin"})
                         </span>
                         <span className="text-[10px] text-slate-400 font-medium">
                           {cm.createdAt ? new Date(cm.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + new Date(cm.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }) : ""}
                         </span>
                       </div>
-                      <p className="text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed text-[11px] font-medium">
+                      <p className="text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed text-[11px] font-medium bg-amber-50/50 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-200/40 dark:border-amber-900/30">
                         {cm.comment}
                       </p>
+
+                      {/* Threaded Replies */}
+                      {Array.isArray(cm.replies) && cm.replies.length > 0 && (
+                        <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                          <div className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
+                            <CornerDownRight className="w-3 h-3 text-indigo-500" />
+                            <span>Replies ({cm.replies.length})</span>
+                          </div>
+                          <div className="space-y-1 pl-2.5 border-l-2 border-indigo-400 dark:border-indigo-600">
+                            {cm.replies.map((rp) => (
+                              <div
+                                key={rp.id}
+                                className="bg-slate-50 dark:bg-slate-900/90 p-2 rounded-lg border border-slate-200 dark:border-slate-700 space-y-0.5"
+                              >
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                                    {rp.author} <span className="font-normal text-slate-400">({rp.authorRole || "User"})</span>
+                                  </span>
+                                  <span className="text-slate-400 font-mono text-[9px]">
+                                    {new Date(rp.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-snug">
+                                  {rp.reply}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Footer Actions & Status */}
                       <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/50">
                         {cm.readByOwner ? (
                           <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                            <Check className="w-3 h-3 text-emerald-500" /> Read by {client.owner}
+                            <Check className="w-3 h-3 text-emerald-500" /> Acknowledged by {client.owner}
                           </span>
                         ) : (
                           <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
                             <Clock className="w-3 h-3 text-amber-500" /> Pending review by {client.owner}
                           </span>
                         )}
-                        {!cm.readByOwner && isOwner && onMarkAdminCommentRead && (
-                          <button
-                            type="button"
-                            onClick={() => onMarkAdminCommentRead(client.id, cm.id)}
-                            className="px-2 py-0.5 text-[10px] font-bold bg-amber-500 text-white rounded-md hover:bg-amber-600 transition shadow-2xs cursor-pointer"
-                          >
-                            Mark Read
-                          </button>
-                        )}
+
+                        <div className="flex items-center gap-1.5">
+                          {onReplyToAdminComment && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveReplyCommentId(activeReplyCommentId === cm.id ? null : cm.id)}
+                              className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-md transition border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Reply className="w-2.5 h-2.5" />
+                              <span>{activeReplyCommentId === cm.id ? "Cancel Reply" : "Reply"}</span>
+                            </button>
+                          )}
+                          {!cm.readByOwner && isOwner && onMarkAdminCommentRead && (
+                            <button
+                              type="button"
+                              onClick={() => onMarkAdminCommentRead(client.id, cm.id)}
+                              className="px-2 py-0.5 text-[10px] font-bold bg-amber-500 text-white rounded-md hover:bg-amber-600 transition shadow-2xs cursor-pointer"
+                            >
+                              Mark Read
+                            </button>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Inline Reply Input */}
+                      {activeReplyCommentId === cm.id && onReplyToAdminComment && (
+                        <div className="pt-2 border-t border-indigo-100 dark:border-indigo-900/50 space-y-1.5 animate-in fade-in">
+                          <textarea
+                            rows={2}
+                            value={replyTextMap[cm.id] || ""}
+                            onChange={(e) => setReplyTextMap((prev) => ({ ...prev, [cm.id]: e.target.value }))}
+                            placeholder={`Reply to ${cm.author}'s directive...`}
+                            className="w-full p-2 text-xs rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none placeholder:text-slate-400"
+                          />
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] text-slate-400">
+                              Will record in history & notify leadership
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setActiveReplyCommentId(null)}
+                                className="px-2 py-1 text-[10px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!replyTextMap[cm.id]?.trim() || isSubmittingReply[cm.id]}
+                                onClick={() => handleSendReply(cm.id)}
+                                className="px-3 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-md shadow-xs disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                              >
+                                <SendHorizontal className="w-2.5 h-2.5" />
+                                <span>{isSubmittingReply[cm.id] ? "Sending..." : "Send Reply"}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

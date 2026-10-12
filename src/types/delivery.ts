@@ -1,3 +1,5 @@
+import { LeadStage, ApproachNote, FinancialDocument, ContactPerson, JourneyLog } from "./lead";
+
 export type TenureType = "delivery" | "payment_terms";
 
 export type MilestoneCompletionStatus = "pending" | "in_progress" | "completed";
@@ -65,6 +67,20 @@ export interface DeliveryRecord {
   deliveryLead?: string; // Assigned delivery lead / manager
   createdAt: string;
   updatedAt: string;
+
+  // Preexisting Pipeline Data from CRM
+  companyLogo?: string;
+  designation?: string;
+  leadSource?: string;
+  stage?: LeadStage;
+  weightage?: number;
+  closureMonth?: string;
+  expectedCloseDate?: string;
+  pipelineNotes?: string;
+  additionalContacts?: ContactPerson[];
+  approachNotes?: ApproachNote[];
+  financialDocuments?: FinancialDocument[];
+  journeyLogs?: JourneyLog[];
 
   // Tenure Configuration
   tenureType: TenureType; // "delivery" | "payment_terms"
