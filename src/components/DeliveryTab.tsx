@@ -95,6 +95,7 @@ import { CoachAllocationDrawer } from "@/components/CoachAllocationDrawer";
 import { DeliveryTimelineView } from "@/components/DeliveryTimelineView";
 import { ClientSignoffModal } from "@/components/ClientSignoffModal";
 import { ClientShareablePortalModal } from "@/components/ClientShareablePortalModal";
+import { DeliveryAiImportModal, ExtractedDeliveryData } from "@/components/DeliveryAiImportModal";
 import {
   calculateAgingReceivables,
   calculateDeliveryHealth,
@@ -168,6 +169,9 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
   // Client Shareable Portal Modal
   const [isSharePortalModalOpen, setIsSharePortalModalOpen] = useState(false);
+
+  // AI Proposal Document Import Modal
+  const [isAiImportModalOpen, setIsAiImportModalOpen] = useState(false);
   const [newProjectForm, setNewProjectForm] = useState({
     companyName: "",
     dealValue: 1500000,
@@ -819,6 +823,43 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     const csv = generateExecutiveMatrixCSV(accessibleDeliveryRecords, ownerPerformanceList);
     const dateStr = new Date().toISOString().split("T")[0];
     downloadCSV(`xmonks-executive-revenue-matrix-${dateStr}.csv`, csv);
+  };
+
+  // Handle Overwrite & Apply AI Extracted Schedule
+  const handleApplyAiSchedule = async (extracted: ExtractedDeliveryData) => {
+    if (!selectedRecord) return;
+    try {
+      const updated = await updateDeliveryRecord(
+        selectedRecord.id,
+        {
+          tenureType: extracted.tenureType,
+          dealValue: extracted.dealValue > 0 ? extracted.dealValue : selectedRecord.dealValue,
+          deliveryMilestones:
+            extracted.tenureType === "payment_terms" ? [] : extracted.deliveryMilestones,
+          paymentTerms:
+            extracted.tenureType === "delivery" ? [] : extracted.paymentTerms,
+          coachingSessionsTotal:
+            extracted.coachingSessionsTotal || selectedRecord.coachingSessionsTotal || 8,
+          coachingSessionsCompleted: 0,
+          coaches:
+            extracted.coaches && extracted.coaches.length > 0
+              ? extracted.coaches
+              : selectedRecord.coaches,
+        },
+        currentUser?.name || "AI Assistant"
+      );
+
+      if (updated) {
+        setDeliveryRecords((prev) =>
+          prev.map((r) => (r.id === updated.id ? updated : r))
+        );
+        try {
+          confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+        } catch {}
+      }
+    } catch (err) {
+      console.error("Error applying AI schedule", err);
+    }
   };
 
   // Handlers
@@ -2230,6 +2271,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={() => setIsAiImportModalOpen(true)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-500/20 transition cursor-pointer"
+                title="Add & generate tenure schedule via Gemini AI (Upload PDF/DOCX)"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                <span>✨ Add via AI</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setIsSharePortalModalOpen(true)}
                 className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900 rounded-xl text-xs font-bold transition cursor-pointer"
                 title="Generate tokenized read-only link for client sponsor"
@@ -2265,7 +2316,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           {/* VIEW 1: TENURE & PAYMENT MILESTONES */}
           {projectSubTab === "tenure" && (
             <div className="space-y-4 pt-1 animate-fadeIn">
-            <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div className="border-b border-slate-200 dark:border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
                   <Receipt className="w-5 h-5" />
@@ -2279,6 +2330,17 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   </p>
                 </div>
               </div>
+
+              {/* Add via AI Button */}
+              <button
+                type="button"
+                onClick={() => setIsAiImportModalOpen(true)}
+                className="flex items-center space-x-2 px-3.5 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-500/20 transition cursor-pointer shrink-0"
+                title="Upload Proposal or Contract (.pdf or .docx) to auto-extract tenure & milestones using Gemini AI"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+                <span>✨ Add via AI (PDF / DOCX)</span>
+              </button>
             </div>
 
             {/* The Three Main Options: 1. Delivery  vs  2. Payment Terms  vs  3. Contract (Combined) */}
@@ -4175,6 +4237,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           isOpen={isSharePortalModalOpen}
           onClose={() => setIsSharePortalModalOpen(false)}
           record={selectedRecord}
+        />
+      )}
+
+      {/* MODAL 7: AI PROPOSAL DOCUMENT & TENURE SCHEDULE GENERATOR */}
+      {isAiImportModalOpen && selectedRecord && (
+        <DeliveryAiImportModal
+          isOpen={isAiImportModalOpen}
+          onClose={() => setIsAiImportModalOpen(false)}
+          record={selectedRecord}
+          onApplySchedule={handleApplyAiSchedule}
         />
       )}
     </div>
