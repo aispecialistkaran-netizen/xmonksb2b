@@ -1047,7 +1047,18 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-500">Next Follow-Up</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-semibold text-slate-500">Next Follow-Up</label>
+                      {nextFollowUpDate && (
+                        <button
+                          type="button"
+                          onClick={() => setNextFollowUpDate("")}
+                          className="text-[10px] text-rose-500 hover:text-rose-600 hover:underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="date"
                       value={nextFollowUpDate}
@@ -1562,9 +1573,25 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
 
               {/* Section 2: Pipeline State & Next Action */}
               <div className="p-3 bg-slate-50/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                  Pipeline &amp; Next Follow-Up
-                </span>
+                <div className="flex items-center justify-between pb-0.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    Pipeline &amp; Next Follow-Up
+                  </span>
+                  {(tpFollowUpDate || tpFollowUpTime) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTpFollowUpDate("");
+                        setTpFollowUpTime("");
+                      }}
+                      className="text-[10px] font-bold text-rose-500 hover:text-rose-600 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Clear both follow-up date and time"
+                    >
+                      <X className="w-3 h-3" />
+                      <span>Clear Follow-up</span>
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                   <div className="sm:col-span-5">
                     <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
@@ -1594,11 +1621,11 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
                           type="button"
                           onClick={() => {
                             setTpFollowUpDate("");
-                            setTpFollowUpTime("");
                           }}
                           className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 hover:underline cursor-pointer"
+                          title="Clear follow-up date"
                         >
-                          Clear
+                          Clear Date
                         </button>
                       )}
                     </div>
@@ -1612,8 +1639,10 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
 
                   <div className="sm:col-span-3">
                     <ModernTimePicker
-                      value={tpFollowUpTime || "11:00"}
+                      value={tpFollowUpTime}
+                      placeholder="No time set"
                       label="Follow-up Time"
+                      onClear={() => setTpFollowUpTime("")}
                       onChange={(newTime) => {
                         setTpFollowUpTime(newTime);
                         if (!tpFollowUpDate) {

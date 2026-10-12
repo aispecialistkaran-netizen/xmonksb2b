@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Clock, ChevronUp, ChevronDown, Check, RotateCcw } from "lucide-react";
+import { Clock, ChevronUp, ChevronDown, Check, RotateCcw, X } from "lucide-react";
 
 interface ModernTimePickerProps {
-  value: string; // HH:mm format (24-hour, e.g. "15:30")
+  value: string; // HH:mm format (24-hour, e.g. "15:30") or ""
   onChange: (time24: string) => void;
   label?: string;
+  placeholder?: string;
   onResetNow?: () => void;
+  onClear?: () => void;
   className?: string;
 }
 
@@ -15,15 +17,19 @@ export const ModernTimePicker: React.FC<ModernTimePickerProps> = ({
   value,
   onChange,
   label = "Activity Time",
+  placeholder,
   onResetNow,
+  onClear,
   className = "",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const hasValue = Boolean(value && value.trim() && value.includes(":"));
+
   // Parse value (HH:mm) into 12-hour components
   const parseTime = (timeStr: string) => {
-    let hours24 = 12;
+    let hours24 = 11;
     let minutes = 0;
     if (timeStr && timeStr.includes(":")) {
       const parts = timeStr.split(":");
@@ -110,7 +116,7 @@ export const ModernTimePicker: React.FC<ModernTimePickerProps> = ({
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>
-      {/* Label & Quick Now Link */}
+      {/* Label & Quick Actions (Clear & Now Links) */}
       <div className="flex items-center justify-between mb-0.5">
         <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
           <span>{label}</span>
@@ -118,15 +124,31 @@ export const ModernTimePicker: React.FC<ModernTimePickerProps> = ({
             IST
           </span>
         </label>
-        <button
-          type="button"
-          onClick={handleNowClick}
-          className="text-[9px] font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
-          title="Reset to current time in IST"
-        >
-          <RotateCcw className="w-2.5 h-2.5" />
-          <span>Now</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          {hasValue && onClear && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClear();
+              }}
+              className="text-[9px] font-semibold text-rose-500 hover:text-rose-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+              title="Clear selected time"
+            >
+              <X className="w-2.5 h-2.5" />
+              <span>Clear</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleNowClick}
+            className="text-[9px] font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+            title="Reset to current time in IST"
+          >
+            <RotateCcw className="w-2.5 h-2.5" />
+            <span>Now</span>
+          </button>
+        </div>
       </div>
 
       {/* Modern Trigger Dropdown Button */}
@@ -136,13 +158,21 @@ export const ModernTimePicker: React.FC<ModernTimePickerProps> = ({
         className="w-full mt-0.5 px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white flex items-center justify-between shadow-2xs hover:border-blue-400 dark:hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer group"
       >
         <div className="flex items-center gap-1.5 truncate">
-          <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0 group-hover:scale-110 transition-transform" />
-          <span className="font-semibold tracking-wide font-mono text-[11px] sm:text-xs">
-            {formattedDisplay}
-          </span>
-          <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">
-            IST
-          </span>
+          <Clock className={`w-3.5 h-3.5 shrink-0 transition-transform ${hasValue ? "text-blue-500 group-hover:scale-110" : "text-slate-400"}`} />
+          {hasValue ? (
+            <>
+              <span className="font-semibold tracking-wide font-mono text-[11px] sm:text-xs">
+                {formattedDisplay}
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">
+                IST
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] sm:text-xs text-slate-400 dark:text-slate-500 font-medium">
+              {placeholder || "Select Time"}
+            </span>
+          )}
         </div>
         <ChevronDown
           className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
@@ -329,15 +359,33 @@ export const ModernTimePicker: React.FC<ModernTimePickerProps> = ({
             </div>
           </div>
 
-          {/* Done Button */}
-          <button
-            type="button"
-            onClick={() => setIsOpen(false)}
-            className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
-          >
-            <Check className="w-3.5 h-3.5" />
-            <span>Set Time ({formattedDisplay} IST)</span>
-          </button>
+          {/* Action Buttons: Clear Time & Set Time */}
+          <div className="flex items-center gap-2">
+            {onClear && hasValue && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClear();
+                  setIsOpen(false);
+                }}
+                className="py-1.5 px-3 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 dark:bg-slate-800 dark:hover:bg-rose-950/50 dark:text-slate-300 dark:hover:text-rose-300 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Clear</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                emitChange(hours12, minutes, period);
+                setIsOpen(false);
+              }}
+              className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Set Time ({formattedDisplay} IST)</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
