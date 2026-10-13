@@ -692,8 +692,8 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
       </div>
 
       {/* 2. Top Metric KPI Counters */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        {/* 1. Filtered Leads */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        {/* 1. Total Leads */}
         <div
           onClick={() => {
             setUpdateFilter("all");
@@ -705,10 +705,10 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
               ? "border-blue-500/50 ring-2 ring-blue-500/10 shadow-xs"
               : "border-slate-200 dark:border-slate-800 hover:border-blue-300"
           }`}
-          title="Click to view all filtered leads"
+          title="Click to view all leads"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span className="truncate">Filtered Leads</span>
+            <span className="truncate">Total Leads</span>
             <Users className="w-4 h-4 text-blue-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white">
@@ -717,31 +717,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
           <div className="text-[11px] text-slate-400 mt-0.5 truncate">Matching criteria</div>
         </div>
 
-        {/* 2. Updated Today */}
-        <div
-          onClick={() => {
-            setUpdateFilter("today");
-            setSelectedChannel("all");
-            setCurrentPage(1);
-          }}
-          className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
-            updateFilter === "today" && selectedChannel === "all"
-              ? "border-emerald-500/50 ring-2 ring-emerald-500/10 shadow-xs"
-              : "border-slate-200 dark:border-slate-800 hover:border-emerald-300"
-          }`}
-          title="Click to filter leads updated today"
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span className="truncate">Updated Today</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-          </div>
-          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-            {stats.updatedTodayCount}
-          </div>
-          <div className="text-[11px] text-emerald-500 font-medium mt-0.5 truncate">Active today</div>
-        </div>
-
-        {/* 3. Updated Today / Call */}
+        {/* 2. Call */}
         <div
           onClick={() => {
             setUpdateFilter("today");
@@ -756,7 +732,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
           title="Click to filter leads updated today via Call"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span className="truncate">Updated Today/Call</span>
+            <span className="truncate">Call</span>
             <PhoneCall className="w-4 h-4 text-teal-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-teal-600 dark:text-teal-400 flex items-baseline gap-1">
@@ -772,7 +748,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
           </div>
         </div>
 
-        {/* 4. Updated Today / Email */}
+        {/* 3. Email */}
         <div
           onClick={() => {
             setUpdateFilter("today");
@@ -787,7 +763,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
           title="Click to filter leads updated today via Email"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span className="truncate">Updated Today/Email</span>
+            <span className="truncate">Email</span>
             <Mail className="w-4 h-4 text-purple-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-purple-600 dark:text-purple-400 flex items-baseline gap-1">
@@ -801,42 +777,6 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
           <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium mt-0.5 truncate">
             {stats.todayEmailsTotal > 0 ? `${stats.todayEmailsTotal} emails sent` : "Emails today"}
           </div>
-        </div>
-
-        {/* 5. Updated This Week */}
-        <div
-          onClick={() => {
-            setUpdateFilter("this_week");
-            setSelectedChannel("all");
-            setCurrentPage(1);
-          }}
-          className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
-            updateFilter === "this_week" && selectedChannel === "all"
-              ? "border-blue-500/50 ring-2 ring-blue-500/10 shadow-xs"
-              : "border-slate-200 dark:border-slate-800 hover:border-blue-300"
-          }`}
-          title="Click to filter leads updated this week"
-        >
-          <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span className="truncate">Updated This Week</span>
-            <Calendar className="w-4 h-4 text-blue-500 shrink-0" />
-          </div>
-          <div className="text-2xl font-black text-blue-600 dark:text-blue-400">
-            {stats.updatedThisWeekCount}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5 truncate">Mon - Sun activity</div>
-        </div>
-
-        {/* 6. Total Touchpoints */}
-        <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span className="truncate">Total Touchpoints</span>
-            <MessageSquare className="w-4 h-4 text-purple-500 shrink-0" />
-          </div>
-          <div className="text-2xl font-black text-purple-600 dark:text-purple-400">
-            {stats.totalTpLogged}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5 truncate">Across matched leads</div>
         </div>
       </div>
 
