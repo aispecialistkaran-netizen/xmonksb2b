@@ -127,7 +127,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
   // View & UI states
   const [expandedClientIds, setExpandedClientIds] = useState<string[]>([]);
   const [selectedClientForModal, setSelectedClientForModal] = useState<ColdClient | null>(null);
-  const [viewMode, setViewMode] = useState<"latest_per_lead" | "all_feed">("latest_per_lead");
+  const [viewMode, setViewMode] = useState<"latest_per_lead" | "all_feed" | "team_report">("latest_per_lead");
   const [quickDirectiveClient, setQuickDirectiveClient] = useState<ColdClient | null>(null);
   const [quickDirectiveText, setQuickDirectiveText] = useState("");
   const [isPostingDirective, setIsPostingDirective] = useState(false);
@@ -267,12 +267,37 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     });
   }, [sortedFilteredLeads]);
 
+  // Channel matching helpers
+  const isCallChannel = (channel?: string): boolean => {
+    if (!channel) return false;
+    const c = channel.toLowerCase();
+    return c === "call" || c.includes("call") || c === "phone";
+  };
+
+  const isEmailChannel = (channel?: string): boolean => {
+    if (!channel) return false;
+    const c = channel.toLowerCase();
+    return c === "email" || c.includes("email") || c === "mail";
+  };
+
+  const toLocalDateString = (d: Date): string => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const isTpToday = (tp: OutreachTouchpoint, todayStr: string): boolean => {
+    if (tp.activityDate && tp.activityDate === todayStr) return true;
+    const d = getTouchpointDate(tp);
+    if (!d) return false;
+    return toLocalDateString(d) === todayStr;
+  };
+
   // Statistics counters
   const stats = useMemo(() => {
     const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-      now.getDate()
-    ).padStart(2, "0")}`;
+    const todayStr = toLocalDateString(now);
 
     // Monday this week
     const dayOfWeek = now.getDay();
@@ -282,27 +307,166 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     mondayThisWeek.setHours(0, 0, 0, 0);
 
     let updatedTodayCount = 0;
+    let updatedTodayCallCount = 0;
+    let updatedTodayEmailCount = 0;
+    let todayCallsTotal = 0;
+    let todayEmailsTotal = 0;
     let updatedThisWeekCount = 0;
     let totalTpLogged = 0;
 
-    sortedFilteredLeads.forEach(({ latestDate, tpCount }) => {
+    sortedFilteredLeads.forEach(({ client, latestDate, latestTp, allTouchpoints, tpCount }) => {
       totalTpLogged += tpCount;
-      if (latestDate) {
-        const dateStr = `${latestDate.getFullYear()}-${String(latestDate.getMonth() + 1).padStart(
-          2,
-          "0"
-        )}-${String(latestDate.getDate()).padStart(2, "0")}`;
-        if (dateStr === todayStr) updatedTodayCount++;
-        if (latestDate >= mondayThisWeek) updatedThisWeekCount++;
+
+      const todayTouchpoints = allTouchpoints.filter((tp) => isTpToday(tp, todayStr));
+      const hasActivityToday =
+        todayTouchpoints.length > 0 ||
+        (latestDate && toLocalDateString(latestDate) === todayStr) ||
+        client.lastContactDate === todayStr;
+
+      if (hasActivityToday) {
+        updatedTodayCount++;
+
+        let leadHasCallToday = false;
+        let leadHasEmailToday = false;
+
+        todayTouchpoints.forEach((tp) => {
+          if (isCallChannel(tp.channel)) {
+            leadHasCallToday = true;
+            todayCallsTotal++;
+          }
+          if (isEmailChannel(tp.channel)) {
+            leadHasEmailToday = true;
+            todayEmailsTotal++;
+          }
+        });
+
+        // Fallback check on latestTp if touchpoints array didn't match channels explicitly
+        if (!leadHasCallToday && !leadHasEmailToday && latestTp) {
+          if (isCallChannel(latestTp.channel)) {
+            leadHasCallToday = true;
+            todayCallsTotal++;
+          }
+          if (isEmailChannel(latestTp.channel)) {
+            leadHasEmailToday = true;
+            todayEmailsTotal++;
+          }
+        }
+
+        if (leadHasCallToday) updatedTodayCallCount++;
+        if (leadHasEmailToday) updatedTodayEmailCount++;
+      }
+
+      if (latestDate && latestDate >= mondayThisWeek) {
+        updatedThisWeekCount++;
       }
     });
 
     return {
       totalLeads: sortedFilteredLeads.length,
       updatedTodayCount,
+      updatedTodayCallCount,
+      updatedTodayEmailCount,
+      todayCallsTotal,
+      todayEmailsTotal,
       updatedThisWeekCount,
       totalTpLogged,
     };
+  }, [sortedFilteredLeads]);
+
+  // Team & Owner breakdown summary report
+  const ownerSummary = useMemo(() => {
+    const now = new Date();
+    const todayStr = toLocalDateString(now);
+
+    const dayOfWeek = now.getDay();
+    const diffToMonday = (dayOfWeek + 6) % 7;
+    const mondayThisWeek = new Date(now);
+    mondayThisWeek.setDate(now.getDate() - diffToMonday);
+    mondayThisWeek.setHours(0, 0, 0, 0);
+
+    const map = new Map<
+      string,
+      {
+        owner: string;
+        filteredLeads: number;
+        updatedToday: number;
+        updatedTodayCall: number;
+        updatedTodayEmail: number;
+        todayCallsCount: number;
+        todayEmailsCount: number;
+        updatedThisWeek: number;
+        totalTouchpoints: number;
+      }
+    >();
+
+    sortedFilteredLeads.forEach(({ client, latestDate, latestTp, allTouchpoints, tpCount }) => {
+      const rawOwner = client.owner?.trim() || "Unassigned";
+      const ownerName = getCanonicalOwnerName(rawOwner);
+
+      if (!map.has(ownerName)) {
+        map.set(ownerName, {
+          owner: ownerName,
+          filteredLeads: 0,
+          updatedToday: 0,
+          updatedTodayCall: 0,
+          updatedTodayEmail: 0,
+          todayCallsCount: 0,
+          todayEmailsCount: 0,
+          updatedThisWeek: 0,
+          totalTouchpoints: 0,
+        });
+      }
+
+      const item = map.get(ownerName)!;
+      item.filteredLeads += 1;
+      item.totalTouchpoints += tpCount;
+
+      const todayTouchpoints = allTouchpoints.filter((tp) => isTpToday(tp, todayStr));
+      const hasActivityToday =
+        todayTouchpoints.length > 0 ||
+        (latestDate && toLocalDateString(latestDate) === todayStr) ||
+        client.lastContactDate === todayStr;
+
+      if (hasActivityToday) {
+        item.updatedToday += 1;
+
+        let hasCall = false;
+        let hasEmail = false;
+
+        todayTouchpoints.forEach((tp) => {
+          if (isCallChannel(tp.channel)) {
+            hasCall = true;
+            item.todayCallsCount++;
+          }
+          if (isEmailChannel(tp.channel)) {
+            hasEmail = true;
+            item.todayEmailsCount++;
+          }
+        });
+
+        if (!hasCall && !hasEmail && latestTp) {
+          if (isCallChannel(latestTp.channel)) {
+            hasCall = true;
+            item.todayCallsCount++;
+          }
+          if (isEmailChannel(latestTp.channel)) {
+            hasEmail = true;
+            item.todayEmailsCount++;
+          }
+        }
+
+        if (hasCall) item.updatedTodayCall += 1;
+        if (hasEmail) item.updatedTodayEmail += 1;
+      }
+
+      if (latestDate && latestDate >= mondayThisWeek) {
+        item.updatedThisWeek += 1;
+      }
+    });
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.updatedToday - a.updatedToday || b.filteredLeads - a.filteredLeads
+    );
   }, [sortedFilteredLeads]);
 
   // Pagination slice
@@ -343,6 +507,58 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
 
   // Export CSV
   const handleExportCSV = () => {
+    if (viewMode === "team_report") {
+      if (ownerSummary.length === 0) {
+        alert("No team data found to export.");
+        return;
+      }
+
+      const headers = [
+        "Lead Owner",
+        "Filtered Leads",
+        "Updated Today",
+        "Updated Today / Call",
+        "Updated Today / Email",
+        "Updated This Week",
+        "Total Touchpoints",
+      ];
+
+      const rows = ownerSummary.map((item) => [
+        escapeCSV(item.owner),
+        escapeCSV(item.filteredLeads),
+        escapeCSV(item.updatedToday),
+        escapeCSV(item.updatedTodayCall),
+        escapeCSV(item.updatedTodayEmail),
+        escapeCSV(item.updatedThisWeek),
+        escapeCSV(item.totalTouchpoints),
+      ].join(","));
+
+      // Summary totals row
+      rows.push([
+        escapeCSV("Total / Team Wide"),
+        escapeCSV(stats.totalLeads),
+        escapeCSV(stats.updatedTodayCount),
+        escapeCSV(stats.updatedTodayCallCount),
+        escapeCSV(stats.updatedTodayEmailCount),
+        escapeCSV(stats.updatedThisWeekCount),
+        escapeCSV(stats.totalTpLogged),
+      ].join(","));
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\r\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `xMonks_Touchpoint_Team_Summary_Report_${new Date().toISOString().split("T")[0]}.csv`
+      );
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     if (sortedFilteredLeads.length === 0) {
       alert("No leads found to export.");
       return;
@@ -450,6 +666,17 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
             >
               All Activity Stream
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("team_report")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                viewMode === "team_report"
+                  ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              Team Report
+            </button>
           </div>
 
           <button
@@ -465,49 +692,151 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
       </div>
 
       {/* 2. Top Metric KPI Counters */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        {/* 1. Filtered Leads */}
+        <div
+          onClick={() => {
+            setUpdateFilter("all");
+            setSelectedChannel("all");
+            setCurrentPage(1);
+          }}
+          className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
+            updateFilter === "all" && selectedChannel === "all"
+              ? "border-blue-500/50 ring-2 ring-blue-500/10 shadow-xs"
+              : "border-slate-200 dark:border-slate-800 hover:border-blue-300"
+          }`}
+          title="Click to view all filtered leads"
+        >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span>Filtered Leads</span>
-            <Users className="w-4 h-4 text-blue-500" />
+            <span className="truncate">Filtered Leads</span>
+            <Users className="w-4 h-4 text-blue-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white">
             {stats.totalLeads}
           </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">Matching criteria</div>
+          <div className="text-[11px] text-slate-400 mt-0.5 truncate">Matching criteria</div>
         </div>
 
-        <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        {/* 2. Updated Today */}
+        <div
+          onClick={() => {
+            setUpdateFilter("today");
+            setSelectedChannel("all");
+            setCurrentPage(1);
+          }}
+          className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
+            updateFilter === "today" && selectedChannel === "all"
+              ? "border-emerald-500/50 ring-2 ring-emerald-500/10 shadow-xs"
+              : "border-slate-200 dark:border-slate-800 hover:border-emerald-300"
+          }`}
+          title="Click to filter leads updated today"
+        >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span>Updated Today</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            <span className="truncate">Updated Today</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
             {stats.updatedTodayCount}
           </div>
-          <div className="text-[11px] text-emerald-500 font-medium mt-0.5">Active today</div>
+          <div className="text-[11px] text-emerald-500 font-medium mt-0.5 truncate">Active today</div>
         </div>
 
-        <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        {/* 3. Updated Today / Call */}
+        <div
+          onClick={() => {
+            setUpdateFilter("today");
+            setSelectedChannel("call");
+            setCurrentPage(1);
+          }}
+          className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
+            updateFilter === "today" && selectedChannel === "call"
+              ? "border-teal-500/50 ring-2 ring-teal-500/10 shadow-xs"
+              : "border-slate-200 dark:border-slate-800 hover:border-teal-300"
+          }`}
+          title="Click to filter leads updated today via Call"
+        >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span>Updated This Week</span>
-            <Calendar className="w-4 h-4 text-blue-500" />
+            <span className="truncate">Updated Today/Call</span>
+            <PhoneCall className="w-4 h-4 text-teal-500 shrink-0" />
+          </div>
+          <div className="text-2xl font-black text-teal-600 dark:text-teal-400 flex items-baseline gap-1">
+            <span>{stats.updatedTodayCallCount}</span>
+            {stats.todayCallsTotal > stats.updatedTodayCallCount && (
+              <span className="text-xs font-semibold text-slate-400">
+                ({stats.todayCallsTotal})
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-teal-600 dark:text-teal-400 font-medium mt-0.5 truncate">
+            {stats.todayCallsTotal > 0 ? `${stats.todayCallsTotal} calls logged` : "Calls today"}
+          </div>
+        </div>
+
+        {/* 4. Updated Today / Email */}
+        <div
+          onClick={() => {
+            setUpdateFilter("today");
+            setSelectedChannel("email");
+            setCurrentPage(1);
+          }}
+          className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
+            updateFilter === "today" && selectedChannel === "email"
+              ? "border-purple-500/50 ring-2 ring-purple-500/10 shadow-xs"
+              : "border-slate-200 dark:border-slate-800 hover:border-purple-300"
+          }`}
+          title="Click to filter leads updated today via Email"
+        >
+          <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
+            <span className="truncate">Updated Today/Email</span>
+            <Mail className="w-4 h-4 text-purple-500 shrink-0" />
+          </div>
+          <div className="text-2xl font-black text-purple-600 dark:text-purple-400 flex items-baseline gap-1">
+            <span>{stats.updatedTodayEmailCount}</span>
+            {stats.todayEmailsTotal > stats.updatedTodayEmailCount && (
+              <span className="text-xs font-semibold text-slate-400">
+                ({stats.todayEmailsTotal})
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium mt-0.5 truncate">
+            {stats.todayEmailsTotal > 0 ? `${stats.todayEmailsTotal} emails sent` : "Emails today"}
+          </div>
+        </div>
+
+        {/* 5. Updated This Week */}
+        <div
+          onClick={() => {
+            setUpdateFilter("this_week");
+            setSelectedChannel("all");
+            setCurrentPage(1);
+          }}
+          className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
+            updateFilter === "this_week" && selectedChannel === "all"
+              ? "border-blue-500/50 ring-2 ring-blue-500/10 shadow-xs"
+              : "border-slate-200 dark:border-slate-800 hover:border-blue-300"
+          }`}
+          title="Click to filter leads updated this week"
+        >
+          <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
+            <span className="truncate">Updated This Week</span>
+            <Calendar className="w-4 h-4 text-blue-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-blue-600 dark:text-blue-400">
             {stats.updatedThisWeekCount}
           </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">Mon - Sun activity</div>
+          <div className="text-[11px] text-slate-400 mt-0.5 truncate">Mon - Sun activity</div>
         </div>
 
+        {/* 6. Total Touchpoints */}
         <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
-            <span>Total Touchpoints</span>
-            <MessageSquare className="w-4 h-4 text-purple-500" />
+            <span className="truncate">Total Touchpoints</span>
+            <MessageSquare className="w-4 h-4 text-purple-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-purple-600 dark:text-purple-400">
             {stats.totalTpLogged}
           </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">Across matched leads</div>
+          <div className="text-[11px] text-slate-400 mt-0.5 truncate">Across matched leads</div>
         </div>
       </div>
 
@@ -1023,7 +1352,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
             </div>
           )}
         </div>
-      ) : (
+      ) : viewMode === "all_feed" ? (
         /* ======================================================== */
         /* Table: Flat Activity Stream (Every Touchpoint Entry)    */
         /* ======================================================== */
@@ -1134,6 +1463,192 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
                   ))
                 )}
               </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* ======================================================== */
+        /* Table: Team Performance & Touchpoint Breakdown Report    */
+        /* ======================================================== */
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
+          <div className="p-4 bg-slate-50/50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-500" />
+                <span>Team Touchpoint Performance Report</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Breakdown of leads updated today, calls vs emails, and total touchpoints across team members.
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+              {ownerSummary.length} Active Owners
+            </span>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[11px]">
+                  <th className="py-3.5 px-4">Lead Owner</th>
+                  <th className="py-3.5 px-4 text-center">Filtered Leads</th>
+                  <th className="py-3.5 px-4 text-center">Updated Today</th>
+                  <th className="py-3.5 px-4 text-center">Updated Today / Call</th>
+                  <th className="py-3.5 px-4 text-center">Updated Today / Email</th>
+                  <th className="py-3.5 px-4 text-center">Updated This Week</th>
+                  <th className="py-3.5 px-4 text-center">Total Touchpoints</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                {ownerSummary.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-16 text-center text-slate-400">
+                      No team members match current filter criteria.
+                    </td>
+                  </tr>
+                ) : (
+                  ownerSummary.map((item) => (
+                    <tr
+                      key={item.owner}
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                    >
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-500 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                            {(item.owner || "U")[0]?.toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {item.owner}
+                            </div>
+                            <div className="text-[10px] text-slate-400">Sales Representative</div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="font-extrabold text-slate-800 dark:text-slate-200 text-sm">
+                          {item.filteredLeads}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300/40">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          {item.updatedToday}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-teal-100 dark:bg-teal-950/80 text-teal-700 dark:text-teal-300 border border-teal-300/40">
+                          <PhoneCall className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                          {item.updatedTodayCall}
+                          {item.todayCallsCount > item.updatedTodayCall && (
+                            <span className="text-[10px] font-medium text-teal-600/70 ml-0.5">
+                              ({item.todayCallsCount})
+                            </span>
+                          )}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-300/40">
+                          <Mail className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          {item.updatedTodayEmail}
+                          {item.todayEmailsCount > item.updatedTodayEmail && (
+                            <span className="text-[10px] font-medium text-purple-600/70 ml-0.5">
+                              ({item.todayEmailsCount})
+                            </span>
+                          )}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-300/40">
+                          <Calendar className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          {item.updatedThisWeek}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="font-extrabold text-slate-800 dark:text-slate-200 text-sm">
+                          {item.totalTouchpoints}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedOwner(item.owner);
+                            setViewMode("latest_per_lead");
+                            setCurrentPage(1);
+                          }}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer inline-flex items-center gap-1"
+                        >
+                          View Leads →
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {ownerSummary.length > 0 && (
+                <tfoot>
+                  <tr className="bg-slate-100/80 dark:bg-slate-800/80 font-black border-t-2 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white">
+                    <td className="py-3.5 px-4 text-xs uppercase tracking-wider">
+                      Total / Team Wide
+                    </td>
+                    <td className="py-3.5 px-4 text-center text-sm">
+                      {stats.totalLeads}
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-200/80 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200">
+                        {stats.updatedTodayCount}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-teal-200/80 dark:bg-teal-900 text-teal-800 dark:text-teal-200">
+                        {stats.updatedTodayCallCount}
+                        {stats.todayCallsTotal > stats.updatedTodayCallCount && (
+                          <span className="text-[10px] ml-0.5">({stats.todayCallsTotal})</span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-purple-200/80 dark:bg-purple-900 text-purple-800 dark:text-purple-200">
+                        {stats.updatedTodayEmailCount}
+                        {stats.todayEmailsTotal > stats.updatedTodayEmailCount && (
+                          <span className="text-[10px] ml-0.5">({stats.todayEmailsTotal})</span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-blue-200/80 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
+                        {stats.updatedThisWeekCount}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center text-sm">
+                      {stats.totalTpLogged}
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      {selectedOwner !== "all" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedOwner("all");
+                            setCurrentPage(1);
+                          }}
+                          className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:underline"
+                        >
+                          Clear Owner Filter
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>
