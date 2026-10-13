@@ -48,6 +48,7 @@ import { SpringPortalLoader } from "@/components/spring";
 import { MoneyLottieLoader } from "@/components/MoneyLottieLoader";
 import { ProspectorTab } from "@/components/ProspectorTab";
 import { LibraryTab } from "@/components/LibraryTab";
+import { SalesQuoteBanner } from "@/components/SalesQuoteBanner";
 import { EmailAttachment } from "@/constants/emailTemplates";
 import { ColdClient, ColdClientStatus, OutreachChannel, AdminComment } from "@/types/outreach";
 import {
@@ -1487,8 +1488,8 @@ export default function Home() {
       <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
         <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {/* Top Header Status & Notification Center Strip */}
-          <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200 dark:border-slate-800 gap-3">
+            <div className="flex items-center space-x-2 shrink-0">
               <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 Logged in as <span className="font-bold text-slate-900 dark:text-white">{currentUser?.name || "User"}</span>
               </span>
@@ -1498,8 +1499,11 @@ export default function Home() {
               </span>
             </div>
 
+            {/* Center: Daily/Hourly Sales Motivation & Humor Quote */}
+            <SalesQuoteBanner />
+
             {/* Right: Live Follow-up Reminder Pill + Notifications Trigger */}
-            <div className="flex items-center space-x-2.5">
+            <div className="flex items-center space-x-2.5 shrink-0">
               {/* On-Screen Follow-up Alert Pill (Live Header Reminder) */}
               {followupReminders.length > 0 && (
                 <button
