@@ -59,7 +59,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
 }) => {
   const [sortBy, setSortBy] = useState<"dealValue" | "weightage" | "updatedAt">("updatedAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [viewLayout, setViewLayout] = useState<"compact" | "grid" | "wide">("compact");
+  const [viewLayout, setViewLayout] = useState<"compact" | "grid" | "wide">("grid");
 
   // Inline program editing state
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
@@ -133,21 +133,8 @@ export const LeadTable: React.FC<LeadTableProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* View Layout Switcher */}
+          {/* View Layout Switcher (Cards & Wide Only) */}
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
-            <button
-              type="button"
-              onClick={() => setViewLayout("compact")}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-                viewLayout === "compact"
-                  ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs"
-                  : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
-              }`}
-              title="Fit to Screen: View all data at once with zero horizontal scroll"
-            >
-              <List className="w-3.5 h-3.5" />
-              <span>Fit View</span>
-            </button>
             <button
               type="button"
               onClick={() => setViewLayout("grid")}
