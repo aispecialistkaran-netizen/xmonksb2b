@@ -101,6 +101,160 @@ function escapeCSV(val: unknown): string {
   return `"${str}"`;
 }
 
+function isCallChannel(channel?: string): boolean {
+  if (!channel) return false;
+  const c = channel.toLowerCase();
+  return c === "call" || c.includes("call") || c === "phone";
+}
+
+function isEmailChannel(channel?: string): boolean {
+  if (!channel) return false;
+  const c = channel.toLowerCase();
+  return c === "email" || c.includes("email") || c === "mail";
+}
+
+function toLocalDateString(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isDateInRange(
+  d: Date | null,
+  filter: string,
+  customFrom?: string,
+  customTo?: string
+): boolean {
+  if (!d) return false;
+  if (filter === "all") return true;
+
+  const now = new Date();
+  const targetDateStr = toLocalDateString(d);
+  const todayStr = toLocalDateString(now);
+
+  const yesterdayDate = new Date(now);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayStr = toLocalDateString(yesterdayDate);
+
+  const dayOfWeek = now.getDay();
+  const diffToMonday = (dayOfWeek + 6) % 7;
+  const mondayThisWeek = new Date(now);
+  mondayThisWeek.setDate(now.getDate() - diffToMonday);
+  mondayThisWeek.setHours(0, 0, 0, 0);
+
+  const sundayThisWeek = new Date(mondayThisWeek);
+  sundayThisWeek.setDate(mondayThisWeek.getDate() + 6);
+  sundayThisWeek.setHours(23, 59, 59, 999);
+
+  const mondayLastWeek = new Date(mondayThisWeek);
+  mondayLastWeek.setDate(mondayThisWeek.getDate() - 7);
+  mondayLastWeek.setHours(0, 0, 0, 0);
+
+  const sundayLastWeek = new Date(mondayLastWeek);
+  sundayLastWeek.setDate(mondayLastWeek.getDate() + 6);
+  sundayLastWeek.setHours(23, 59, 59, 999);
+
+  const firstDayCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const lastDayCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  const firstDayPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+  const lastDayPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+  switch (filter) {
+    case "today":
+      return targetDateStr === todayStr;
+    case "yesterday":
+      return targetDateStr === yesterdayStr;
+    case "this_week":
+      return d >= mondayThisWeek && d <= sundayThisWeek;
+    case "last_week":
+      return d >= mondayLastWeek && d <= sundayLastWeek;
+    case "current_month":
+      return d >= firstDayCurrentMonth && d <= lastDayCurrentMonth;
+    case "previous_month":
+      return d >= firstDayPrevMonth && d <= lastDayPrevMonth;
+    case "custom": {
+      if (customFrom && customTo) {
+        return d >= new Date(customFrom + "T00:00:00") && d <= new Date(customTo + "T23:59:59.999");
+      }
+      if (customFrom) {
+        return d >= new Date(customFrom + "T00:00:00");
+      }
+      if (customTo) {
+        return d <= new Date(customTo + "T23:59:59.999");
+      }
+      return true;
+    }
+    default:
+      return true;
+  }
+}
+
+function leadHasChannelInRange(
+  item: {
+    client: ColdClient;
+    latestDate: Date | null;
+    latestTp: OutreachTouchpoint | null;
+    allTouchpoints: OutreachTouchpoint[];
+  },
+  channelType: "call" | "email",
+  filter: string,
+  customFrom?: string,
+  customTo?: string
+): boolean {
+  const matchesChannel = (channel?: string) => {
+    if (!channel) return false;
+    if (channelType === "call") return isCallChannel(channel);
+    if (channelType === "email") return isEmailChannel(channel);
+    return false;
+  };
+
+  if (filter === "all") {
+    if (item.allTouchpoints.some((tp) => matchesChannel(tp.channel))) {
+      return true;
+    }
+    if (item.latestTp && matchesChannel(item.latestTp.channel)) {
+      return true;
+    }
+    return false;
+  }
+
+  // Filter is date range: check touchpoints within that date range
+  const inRange = item.allTouchpoints.filter((tp) => {
+    const d = getTouchpointDate(tp);
+    return d ? isDateInRange(d, filter, customFrom, customTo) : false;
+  });
+
+  if (inRange.some((tp) => matchesChannel(tp.channel))) {
+    return true;
+  }
+
+  // Fallback check on latest touchpoint if within range
+  if (item.latestDate && isDateInRange(item.latestDate, filter, customFrom, customTo)) {
+    if (item.latestTp && matchesChannel(item.latestTp.channel)) {
+      return true;
+    }
+  }
+
+  // Fallback for today if client.lastContactDate matches today
+  if (filter === "today" && item.client.lastContactDate === toLocalDateString(new Date())) {
+    if (item.latestTp && matchesChannel(item.latestTp.channel)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isTpToday(tp: OutreachTouchpoint, todayStr: string): boolean {
+  if (tp.activityDate && tp.activityDate === todayStr) return true;
+  const d = getTouchpointDate(tp);
+  if (!d) return false;
+  return toLocalDateString(d) === todayStr;
+}
+
+
 export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
   coldClients,
   currentUser,
@@ -180,8 +334,8 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     });
   }, [coldClients]);
 
-  // Filtered Leads
-  const filteredLeads = useMemo(() => {
+  // Base Filtered Leads: Matches Date range, Dataset, Owner, and Search term
+  const baseFilteredLeads = useMemo(() => {
     return leadsWithTouchpoint.filter(({ client, latestDate, latestTp, allTouchpoints }) => {
       // 1. Lead Updated Filter (strict Touchpoint History check)
       if (updateFilter !== "all") {
@@ -199,14 +353,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
         if (!isSameOwner(client.owner, selectedOwner)) return false;
       }
 
-      // 4. Channel Filter
-      if (selectedChannel !== "all") {
-        if (!latestTp || latestTp.channel?.toLowerCase() !== selectedChannel.toLowerCase()) {
-          return false;
-        }
-      }
-
-      // 5. Search Term
+      // 4. Search Term
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase().trim();
         const compMatch = client.companyName?.toLowerCase().includes(term);
@@ -232,9 +379,24 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     customTo,
     selectedDataset,
     selectedOwner,
-    selectedChannel,
     searchTerm,
   ]);
+
+  // Channel-filtered Leads for the table views
+  const filteredLeads = useMemo(() => {
+    if (selectedChannel === "all") return baseFilteredLeads;
+
+    return baseFilteredLeads.filter((item) => {
+      if (selectedChannel === "call" || selectedChannel === "email") {
+        return leadHasChannelInRange(item, selectedChannel, updateFilter, customFrom, customTo);
+      }
+      const matches = (ch?: string) => ch?.toLowerCase() === selectedChannel.toLowerCase();
+      const inRange = updateFilter === "all"
+        ? item.allTouchpoints
+        : item.allTouchpoints.filter((tp) => isDateInRange(getTouchpointDate(tp), updateFilter, customFrom, customTo));
+      return inRange.some((tp) => matches(tp.channel)) || (item.latestTp ? matches(item.latestTp.channel) : false);
+    });
+  }, [baseFilteredLeads, selectedChannel, updateFilter, customFrom, customTo]);
 
   // Sort filtered leads by latest touchpoint date descending (most recently updated first)
   const sortedFilteredLeads = useMemo(() => {
@@ -267,34 +429,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     });
   }, [sortedFilteredLeads]);
 
-  // Channel matching helpers
-  const isCallChannel = (channel?: string): boolean => {
-    if (!channel) return false;
-    const c = channel.toLowerCase();
-    return c === "call" || c.includes("call") || c === "phone";
-  };
-
-  const isEmailChannel = (channel?: string): boolean => {
-    if (!channel) return false;
-    const c = channel.toLowerCase();
-    return c === "email" || c.includes("email") || c === "mail";
-  };
-
-  const toLocalDateString = (d: Date): string => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const isTpToday = (tp: OutreachTouchpoint, todayStr: string): boolean => {
-    if (tp.activityDate && tp.activityDate === todayStr) return true;
-    const d = getTouchpointDate(tp);
-    if (!d) return false;
-    return toLocalDateString(d) === todayStr;
-  };
-
-  // Statistics counters
+  // Statistics counters (calculated dynamically based on active filters)
   const stats = useMemo(() => {
     const now = new Date();
     const todayStr = toLocalDateString(now);
@@ -306,6 +441,8 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     mondayThisWeek.setDate(now.getDate() - diffToMonday);
     mondayThisWeek.setHours(0, 0, 0, 0);
 
+    let callCount = 0;
+    let emailCount = 0;
     let updatedTodayCount = 0;
     let updatedTodayCallCount = 0;
     let updatedTodayEmailCount = 0;
@@ -314,9 +451,19 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     let updatedThisWeekCount = 0;
     let totalTpLogged = 0;
 
-    sortedFilteredLeads.forEach(({ client, latestDate, latestTp, allTouchpoints, tpCount }) => {
+    baseFilteredLeads.forEach((item) => {
+      const { client, latestDate, latestTp, allTouchpoints, tpCount } = item;
       totalTpLogged += tpCount;
 
+      // Unique leads contacted via Call or Email matching active filters
+      if (leadHasChannelInRange(item, "call", updateFilter, customFrom, customTo)) {
+        callCount++;
+      }
+      if (leadHasChannelInRange(item, "email", updateFilter, customFrom, customTo)) {
+        emailCount++;
+      }
+
+      // Legacy/report counters for today and this week
       const todayTouchpoints = allTouchpoints.filter((tp) => isTpToday(tp, todayStr));
       const hasActivityToday =
         todayTouchpoints.length > 0 ||
@@ -362,7 +509,9 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     });
 
     return {
-      totalLeads: sortedFilteredLeads.length,
+      totalLeads: baseFilteredLeads.length,
+      callCount,
+      emailCount,
       updatedTodayCount,
       updatedTodayCallCount,
       updatedTodayEmailCount,
@@ -371,7 +520,7 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
       updatedThisWeekCount,
       totalTpLogged,
     };
-  }, [sortedFilteredLeads]);
+  }, [baseFilteredLeads, updateFilter, customFrom, customTo]);
 
   // Team & Owner breakdown summary report
   const ownerSummary = useMemo(() => {
@@ -696,12 +845,11 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
         {/* 1. Total Leads */}
         <div
           onClick={() => {
-            setUpdateFilter("all");
             setSelectedChannel("all");
             setCurrentPage(1);
           }}
           className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
-            updateFilter === "all" && selectedChannel === "all"
+            selectedChannel === "all"
               ? "border-blue-500/50 ring-2 ring-blue-500/10 shadow-xs"
               : "border-slate-200 dark:border-slate-800 hover:border-blue-300"
           }`}
@@ -720,52 +868,50 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
         {/* 2. Call */}
         <div
           onClick={() => {
-            setUpdateFilter("today");
-            setSelectedChannel("call");
+            setSelectedChannel((prev) => (prev === "call" ? "all" : "call"));
             setCurrentPage(1);
           }}
           className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
-            updateFilter === "today" && selectedChannel === "call"
+            selectedChannel === "call"
               ? "border-teal-500/50 ring-2 ring-teal-500/10 shadow-xs"
               : "border-slate-200 dark:border-slate-800 hover:border-teal-300"
           }`}
-          title="Click to filter leads updated today via Call"
+          title="Click to filter leads contacted via Call"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
             <span className="truncate">Call</span>
             <PhoneCall className="w-4 h-4 text-teal-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-teal-600 dark:text-teal-400">
-            {stats.updatedTodayCallCount}
+            {stats.callCount}
           </div>
           <div className="text-[11px] text-teal-600 dark:text-teal-400 font-medium mt-0.5 truncate">
-            {stats.updatedTodayCallCount > 0 ? `${stats.updatedTodayCallCount} leads contacted` : "No calls today"}
+            {stats.callCount > 0 ? `${stats.callCount} leads contacted` : "No calls in range"}
           </div>
         </div>
 
         {/* 3. Email */}
         <div
           onClick={() => {
-            setUpdateFilter("today");
-            setSelectedChannel("email");
+            setSelectedChannel((prev) => (prev === "email" ? "all" : "email"));
             setCurrentPage(1);
           }}
           className={`p-4 bg-white dark:bg-slate-900 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
-            updateFilter === "today" && selectedChannel === "email"
+            selectedChannel === "email"
               ? "border-purple-500/50 ring-2 ring-purple-500/10 shadow-xs"
               : "border-slate-200 dark:border-slate-800 hover:border-purple-300"
           }`}
-          title="Click to filter leads updated today via Email"
+          title="Click to filter leads contacted via Email"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1 font-semibold">
             <span className="truncate">Email</span>
             <Mail className="w-4 h-4 text-purple-500 shrink-0" />
           </div>
           <div className="text-2xl font-black text-purple-600 dark:text-purple-400">
-            {stats.updatedTodayEmailCount}
+            {stats.emailCount}
           </div>
           <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium mt-0.5 truncate">
-            {stats.updatedTodayEmailCount > 0 ? `${stats.updatedTodayEmailCount} leads contacted` : "No emails today"}
+            {stats.emailCount > 0 ? `${stats.emailCount} leads contacted` : "No emails in range"}
           </div>
         </div>
       </div>
