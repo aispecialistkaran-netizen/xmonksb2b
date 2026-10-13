@@ -19,31 +19,66 @@ const DEFAULT_QUOTE: QuoteData = {
   timestamp: new Date().toISOString(),
 };
 
+interface LeapState {
+  active: boolean;
+  x: number;
+  y: number;
+  rotation: number;
+  facing: number;
+  isImpact: boolean;
+  showPaw: boolean;
+}
+
 export const SalesQuoteBanner: React.FC = () => {
   const [quoteData, setQuoteData] = useState<QuoteData>(DEFAULT_QUOTE);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isFading, setIsFading] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [timerKey, setTimerKey] = useState<number>(0);
+  const [isQuoteDogHidden, setIsQuoteDogHidden] = useState<boolean>(false);
+
+  // Leaping dog state
+  const [leapState, setLeapState] = useState<LeapState>({
+    active: false,
+    x: 0,
+    y: 0,
+    rotation: 0,
+    facing: 1,
+    isImpact: false,
+    showPaw: false,
+  });
 
   const dogContainerRef = useRef<HTMLDivElement>(null);
+  const leapingDogContainerRef = useRef<HTMLDivElement>(null);
 
-  // Mount Lottie cute doggie walk-cycle animation
+  // Mount Lottie cute doggie walk-cycle animation for both patrol and leaping dogs
   useEffect(() => {
     let animItem: AnimationItem | null = null;
+    let leapingAnimItem: AnimationItem | null = null;
     let isCancelled = false;
 
     fetch("/Cute%20Doggie.json")
       .then((res) => res.json())
       .then((animationData) => {
-        if (!isCancelled && dogContainerRef.current) {
-          animItem = lottie.loadAnimation({
-            container: dogContainerRef.current,
-            renderer: "svg",
-            loop: true,
-            autoplay: true,
-            animationData,
-          });
+        if (!isCancelled) {
+          if (dogContainerRef.current) {
+            animItem = lottie.loadAnimation({
+              container: dogContainerRef.current,
+              renderer: "svg",
+              loop: true,
+              autoplay: true,
+              animationData,
+            });
+          }
+          if (leapingDogContainerRef.current) {
+            leapingAnimItem = lottie.loadAnimation({
+              container: leapingDogContainerRef.current,
+              renderer: "svg",
+              loop: true,
+              autoplay: true,
+              animationData,
+            });
+          }
         }
       })
       .catch((err) => {
@@ -55,6 +90,168 @@ export const SalesQuoteBanner: React.FC = () => {
       if (animItem && typeof animItem.destroy === "function") {
         animItem.destroy();
       }
+      if (leapingAnimItem && typeof leapingAnimItem.destroy === "function") {
+        leapingAnimItem.destroy();
+      }
+    };
+  }, []);
+
+  // Listen for tab switch events and trigger the cute dog jump across the screen
+  useEffect(() => {
+    let animFrameId: number | null = null;
+    let pauseTimerId: NodeJS.Timeout | null = null;
+
+    const handleDogJump = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        tab: string;
+        tabLabel?: string;
+        targetRect: DOMRect;
+        onLand: () => void;
+      }>;
+      const detail = customEvent.detail;
+      if (!detail || !detail.targetRect) return;
+
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      if (pauseTimerId) clearTimeout(pauseTimerId);
+
+      const quoteDogEl = document.getElementById("sales-quote-running-dog");
+      const qRect = quoteDogEl?.getBoundingClientRect();
+
+      const startX = qRect ? qRect.left + qRect.width / 2 - 24 : window.innerWidth / 2 - 24;
+      const startY = qRect ? qRect.top - 4 : 25;
+
+      const targetRect = detail.targetRect;
+      const targetX = targetRect.left + (targetRect.width > 90 ? 26 : targetRect.width / 2) - 24;
+      const targetY = targetRect.top + targetRect.height / 2 - 12;
+
+      const deltaX = targetX - startX;
+      const deltaY = targetY - startY;
+      // In Cute Doggie.json, scaleX(1) faces left (towards sidebar), scaleX(-1) faces right
+      const facing = deltaX < 0 ? 1 : -1;
+      const arcHeight = Math.min(160, Math.max(75, Math.abs(deltaX) * 0.22));
+
+      // Temporarily hide the quote bar dog during jump
+      setIsQuoteDogHidden(true);
+
+      const flightDuration = 440;
+      const flightStart = performance.now();
+
+      const animateFlight = (now: number) => {
+        const elapsed = now - flightStart;
+        const p = Math.min(1, elapsed / flightDuration);
+        const easedP = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p;
+
+        const currX = startX + deltaX * easedP;
+        const arc = -Math.sin(p * Math.PI) * arcHeight;
+        const currY = startY + deltaY * p + arc;
+
+        // Rotation tilt during leap
+        const rot =
+          facing === 1
+            ? p < 0.35
+              ? -18
+              : p < 0.7
+              ? -3
+              : 20
+            : p < 0.35
+            ? 18
+            : p < 0.7
+            ? 3
+            : -20;
+
+        setLeapState({
+          active: true,
+          x: currX,
+          y: currY,
+          rotation: rot,
+          facing,
+          isImpact: false,
+          showPaw: false,
+        });
+
+        if (p < 1) {
+          animFrameId = requestAnimationFrame(animateFlight);
+        } else {
+          // ==============================
+          // LANDED ON TAB & CLICK!
+          // ==============================
+          setLeapState({
+            active: true,
+            x: targetX,
+            y: targetY,
+            rotation: 0,
+            facing,
+            isImpact: true,
+            showPaw: true,
+          });
+
+          // Trigger tab click & switch callback
+          try {
+            detail.onLand();
+          } catch (err) {
+            console.warn("Error invoking onLand:", err);
+          }
+
+          // Wag paws happily on tab for 240ms, then leap back to quote bar
+          pauseTimerId = setTimeout(() => {
+            const returnDuration = 380;
+            const returnStart = performance.now();
+            const returnFacing = facing === 1 ? -1 : 1; // Turn around to face quote bar
+
+            const animateReturn = (retNow: number) => {
+              const retElapsed = retNow - returnStart;
+              const retP = Math.min(1, retElapsed / returnDuration);
+              const retEasedP = retP < 0.5 ? 2 * retP * retP : -1 + (4 - 2 * retP) * retP;
+
+              const rX = targetX + (startX - targetX) * retEasedP;
+              const rArc = -Math.sin(retP * Math.PI) * (arcHeight * 0.75);
+              const rY = targetY + (startY - targetY) * retP + rArc;
+
+              const rRot =
+                returnFacing === -1
+                  ? retP < 0.35
+                    ? 16
+                    : retP < 0.7
+                    ? 2
+                    : -12
+                  : retP < 0.35
+                  ? -16
+                  : retP < 0.7
+                  ? -2
+                  : 12;
+
+              setLeapState({
+                active: true,
+                x: rX,
+                y: rY,
+                rotation: rRot,
+                facing: returnFacing,
+                isImpact: false,
+                showPaw: false,
+              });
+
+              if (retP < 1) {
+                animFrameId = requestAnimationFrame(animateReturn);
+              } else {
+                // Return complete! Re-enable quote bar dog
+                setLeapState((prev) => ({ ...prev, active: false }));
+                setIsQuoteDogHidden(false);
+              }
+            };
+
+            animFrameId = requestAnimationFrame(animateReturn);
+          }, 240);
+        }
+      };
+
+      animFrameId = requestAnimationFrame(animateFlight);
+    };
+
+    window.addEventListener("dog-jump-to-tab", handleDogJump);
+    return () => {
+      window.removeEventListener("dog-jump-to-tab", handleDogJump);
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      if (pauseTimerId) clearTimeout(pauseTimerId);
     };
   }, []);
 
@@ -151,9 +348,11 @@ export const SalesQuoteBanner: React.FC = () => {
         {/* Cute Running Doggie above the quote bar with comfortable headroom */}
         <div className="absolute -top-[23px] left-2 right-2 h-6 pointer-events-none overflow-visible z-20">
           <div
-            className="absolute top-0 w-12 h-6"
+            id="sales-quote-running-dog"
+            className="absolute top-0 w-12 h-6 transition-opacity duration-150"
             style={{
               animation: "dogTrotPatrol 10s ease-in-out infinite",
+              opacity: isQuoteDogHidden ? 0 : 1,
             }}
           >
             <div
@@ -161,6 +360,34 @@ export const SalesQuoteBanner: React.FC = () => {
               className="w-full h-full [&_svg]:w-full [&_svg]:h-full drop-shadow-xs"
             />
           </div>
+        </div>
+
+        {/* 🐾 Leaping Dog Floating Portal (Jumps from quote bar onto clicked tab and clicks it) */}
+        <div
+          className="fixed top-0 left-0 pointer-events-none z-[999999] will-change-transform"
+          style={{
+            transform: `translate3d(${leapState.x}px, ${leapState.y}px, 0) scaleX(${leapState.facing}) rotate(${leapState.rotation}deg)`,
+            opacity: leapState.active ? 1 : 0,
+            visibility: leapState.active ? "visible" : "hidden",
+            transition: leapState.isImpact ? "transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1)" : "none",
+          }}
+        >
+          <div
+            ref={leapingDogContainerRef}
+            className="w-12 h-6 [&_svg]:w-full [&_svg]:h-full drop-shadow-lg"
+            style={{
+              transform: leapState.isImpact ? "scale(1.3, 0.82)" : "scale(1.2, 1.2)",
+              transition: "transform 0.1s ease",
+            }}
+          />
+
+          {/* Floating Paw Click Ripple & Bark Bubble */}
+          {leapState.showPaw && (
+            <div className="absolute -top-7 -left-3 flex items-center gap-1 bg-amber-500 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full shadow-2xl border-2 border-amber-300 animate-in zoom-in-75 fade-in duration-150 whitespace-nowrap">
+              <span className="text-xs">🐾</span>
+              <span>Click!</span>
+            </div>
+          )}
         </div>
 
         {/* Icon Pill */}

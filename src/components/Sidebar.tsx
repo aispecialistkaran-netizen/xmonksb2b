@@ -115,9 +115,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
         currentUser.allowedTabs[0] === "delivery")
   );
 
-  const handleTabClick = (tab: NavTab) => {
-    setActiveTab(tab);
-    setIsMobileOpen(false);
+  const [dogLandingTab, setDogLandingTab] = useState<NavTab | null>(null);
+
+  const handleTabClick = (tab: NavTab, event?: React.MouseEvent<HTMLButtonElement>) => {
+    if (tab === activeTab) return;
+
+    // Check if the running dog on quote banner is present in DOM & on desktop
+    const quoteDogEl = document.getElementById("sales-quote-running-dog");
+    const targetBtn =
+      event?.currentTarget ||
+      (document.querySelector(`[data-nav-tab="${tab}"]`) as HTMLButtonElement | null);
+
+    if (quoteDogEl && targetBtn && window.innerWidth >= 768) {
+      const targetRect = targetBtn.getBoundingClientRect();
+      let hasSwitched = false;
+
+      const finishSwitch = () => {
+        if (!hasSwitched) {
+          hasSwitched = true;
+          setDogLandingTab(tab);
+          setTimeout(() => setDogLandingTab(null), 500);
+          setActiveTab(tab);
+          setIsMobileOpen(false);
+        }
+      };
+
+      // Guaranteed safety fallback so switching is never missed
+      const fallbackTimer = setTimeout(finishSwitch, 800);
+
+      window.dispatchEvent(
+        new CustomEvent("dog-jump-to-tab", {
+          detail: {
+            tab,
+            targetRect,
+            tabLabel: targetBtn.innerText?.trim() || tab,
+            onLand: () => {
+              clearTimeout(fallbackTimer);
+              finishSwitch();
+            },
+          },
+        })
+      );
+    } else {
+      setActiveTab(tab);
+      setIsMobileOpen(false);
+    }
   };
 
   interface NavItem {
@@ -243,15 +285,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {visibleItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
+          const isLanded = dogLandingTab === item.id;
 
           return (
             <button
               key={item.id}
-              onClick={() => handleTabClick(item.id)}
+              data-nav-tab={item.id}
+              onClick={(e) => handleTabClick(item.id, e)}
               className={`w-full flex items-center ${
                 isCollapsed ? "justify-center px-2" : "justify-between px-3"
               } py-2 rounded-xl text-xs font-bold transition-all border ${
-                isActive
+                isLanded
+                  ? "scale-[0.95] ring-2 ring-amber-400 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-extrabold shadow-md"
+                  : isActive
                   ? `${item.activeBg} shadow-sm font-extrabold`
                   : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900"
               }`}
@@ -259,17 +305,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <div className="flex items-center space-x-2.5 min-w-0">
                 <Icon
-                  className={`w-4 h-4 flex-shrink-0 ${
-                    isActive ? item.color : "text-slate-400 group-hover:text-slate-600"
+                  className={`w-4 h-4 flex-shrink-0 transition-transform ${
+                    isLanded
+                      ? "text-amber-500 scale-125"
+                      : isActive
+                      ? item.color
+                      : "text-slate-400 group-hover:text-slate-600"
                   }`}
                 />
                 {!isCollapsed && <span className="truncate">{item.label}</span>}
               </div>
 
-              {!isCollapsed && item.badge && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                  {item.badge}
-                </span>
+              {!isCollapsed && (
+                isLanded ? (
+                  <span className="text-[10px] font-black px-1.5 py-0.2 rounded-md bg-amber-500 text-white animate-pulse">
+                    🐾
+                  </span>
+                ) : item.badge ? (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    {item.badge}
+                  </span>
+                ) : null
               )}
             </button>
           );
