@@ -25,6 +25,8 @@ interface LeapState {
   y: number;
   rotation: number;
   facing: number;
+  scale: number;
+  shadowBlur: number;
   isImpact: boolean;
   showPaw: boolean;
 }
@@ -44,6 +46,8 @@ export const SalesQuoteBanner: React.FC = () => {
     y: 0,
     rotation: 0,
     facing: 1,
+    scale: 1,
+    shadowBlur: 4,
     isImpact: false,
     showPaw: false,
   });
@@ -117,8 +121,14 @@ export const SalesQuoteBanner: React.FC = () => {
       const quoteDogEl = document.getElementById("sales-quote-running-dog");
       const qRect = quoteDogEl?.getBoundingClientRect();
 
+      // Safe viewport boundary margins (keeps dog 100% inside visible screen viewport)
+      const SAFE_MIN_Y = 18;
+      const SAFE_MAX_Y = Math.max(300, (window.innerHeight || 800) - 55);
+      const SAFE_MIN_X = 12;
+      const SAFE_MAX_X = Math.max(300, (window.innerWidth || 1200) - 60);
+
       const startX = qRect ? qRect.left + qRect.width / 2 - 24 : window.innerWidth / 2 - 24;
-      const startY = qRect ? qRect.top - 4 : 25;
+      const startY = qRect ? Math.max(SAFE_MIN_Y + 12, qRect.top - 4) : 34;
 
       const targetRect = detail.targetRect;
       const targetX = targetRect.left + (targetRect.width > 90 ? 26 : targetRect.width / 2) - 24;
@@ -128,7 +138,11 @@ export const SalesQuoteBanner: React.FC = () => {
       const deltaY = targetY - startY;
       // In Cute Doggie.json, scaleX(1) faces left (towards sidebar), scaleX(-1) faces right
       const facing = deltaX < 0 ? 1 : -1;
-      const arcHeight = Math.min(160, Math.max(75, Math.abs(deltaX) * 0.22));
+
+      // Calculate max upward arc that guarantees currY never rises above SAFE_MIN_Y
+      const midLinearY = startY + deltaY * 0.5;
+      const maxAllowedUpwardArc = Math.max(0, midLinearY - SAFE_MIN_Y);
+      const arcHeight = Math.min(maxAllowedUpwardArc, Math.max(20, Math.abs(deltaX) * 0.16));
 
       // Temporarily hide the quote bar dog during jump
       setIsQuoteDogHidden(true);
@@ -144,17 +158,26 @@ export const SalesQuoteBanner: React.FC = () => {
         // Butter-smooth cosine ease-in-out curve
         const easedP = 0.5 - 0.5 * Math.cos(p * Math.PI);
 
-        const currX = startX + deltaX * easedP;
-        const arc = -Math.sin(p * Math.PI) * arcHeight;
-        const currY = startY + deltaY * p + arc;
+        // Coordinates strictly clamped within safe viewport boundaries
+        const rawX = startX + deltaX * easedP;
+        const rawY = startY + deltaY * p - Math.sin(p * Math.PI) * arcHeight;
+        const currX = Math.max(SAFE_MIN_X, Math.min(SAFE_MAX_X, rawX));
+        const currY = Math.max(SAFE_MIN_Y, Math.min(SAFE_MAX_Y, rawY));
+
+        // 3D Zoom In & Zoom Out effect:
+        // At takeoff (p=0): normal size (1.05x)
+        // At mid-flight apex (p=0.5): zooms in up to ~2.2x closer to the user/screen!
+        // At landing (p=1.0): zooms back out to 1.05x cleanly onto the tab!
+        const zoomScale = 1.05 + Math.sin(p * Math.PI) * 1.15;
+        const shadowBlur = 4 + Math.sin(p * Math.PI) * 16;
 
         // Continuous smooth rotation tilt during the 4-5s leap
         let rot: number;
         if (p < 0.4) {
-          // Tilting upwards into the high leap (-22deg -> 0deg)
+          // Tilting upwards into the leap (-22deg -> 0deg)
           rot = -22 * (1 - p / 0.4);
         } else if (p < 0.7) {
-          // Soaring through mid-flight apex (-2deg -> +6deg)
+          // Gliding through mid-flight apex (-2deg -> +6deg)
           rot = -2 + 8 * ((p - 0.4) / 0.3);
         } else {
           // Graceful dive downward onto the tab (+6deg -> +24deg)
@@ -168,6 +191,8 @@ export const SalesQuoteBanner: React.FC = () => {
           y: currY,
           rotation: rot,
           facing,
+          scale: zoomScale,
+          shadowBlur,
           isImpact: false,
           showPaw: false,
         });
@@ -180,10 +205,12 @@ export const SalesQuoteBanner: React.FC = () => {
           // ==============================
           setLeapState({
             active: true,
-            x: targetX,
-            y: targetY,
+            x: Math.max(SAFE_MIN_X, Math.min(SAFE_MAX_X, targetX)),
+            y: Math.max(SAFE_MIN_Y, Math.min(SAFE_MAX_Y, targetY)),
             rotation: 0,
             facing,
+            scale: 1.05,
+            shadowBlur: 4,
             isImpact: true,
             showPaw: true,
           });
@@ -206,9 +233,14 @@ export const SalesQuoteBanner: React.FC = () => {
               const retP = Math.min(1, retElapsed / returnDuration);
               const retEasedP = 0.5 - 0.5 * Math.cos(retP * Math.PI);
 
-              const rX = targetX + (startX - targetX) * retEasedP;
-              const rArc = -Math.sin(retP * Math.PI) * (arcHeight * 0.75);
-              const rY = targetY + (startY - targetY) * retP + rArc;
+              const rawReturnX = targetX + (startX - targetX) * retEasedP;
+              const rawReturnY = targetY + (startY - targetY) * retP - Math.sin(retP * Math.PI) * (arcHeight * 0.75);
+              const rX = Math.max(SAFE_MIN_X, Math.min(SAFE_MAX_X, rawReturnX));
+              const rY = Math.max(SAFE_MIN_Y, Math.min(SAFE_MAX_Y, rawReturnY));
+
+              // Zoom in / zoom out on return flight
+              const returnZoomScale = 1.05 + Math.sin(retP * Math.PI) * 0.95;
+              const returnShadowBlur = 4 + Math.sin(retP * Math.PI) * 12;
 
               let rRot: number;
               if (retP < 0.4) {
@@ -226,6 +258,8 @@ export const SalesQuoteBanner: React.FC = () => {
                 y: rY,
                 rotation: rRot,
                 facing: returnFacing,
+                scale: returnZoomScale,
+                shadowBlur: returnShadowBlur,
                 isImpact: false,
                 showPaw: false,
               });
@@ -366,7 +400,7 @@ export const SalesQuoteBanner: React.FC = () => {
         <div
           className="fixed top-0 left-0 pointer-events-none z-[999999] will-change-transform"
           style={{
-            transform: `translate3d(${leapState.x}px, ${leapState.y}px, 0) scaleX(${leapState.facing}) rotate(${leapState.rotation}deg)`,
+            transform: `translate3d(${leapState.x}px, ${leapState.y}px, 0) scaleX(${leapState.facing}) rotate(${leapState.rotation}deg) scale(${leapState.scale})`,
             opacity: leapState.active ? 1 : 0,
             visibility: leapState.active ? "visible" : "hidden",
             transition: leapState.isImpact ? "transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1)" : "none",
@@ -374,9 +408,10 @@ export const SalesQuoteBanner: React.FC = () => {
         >
           <div
             ref={leapingDogContainerRef}
-            className="w-12 h-6 [&_svg]:w-full [&_svg]:h-full drop-shadow-lg"
+            className="w-12 h-6 [&_svg]:w-full [&_svg]:h-full"
             style={{
-              transform: leapState.isImpact ? "scale(1.3, 0.82)" : "scale(1.2, 1.2)",
+              transform: leapState.isImpact ? "scale(1.3, 0.82)" : "scale(1.15, 1.15)",
+              filter: `drop-shadow(0 ${Math.max(2, leapState.shadowBlur * 0.55)}px ${leapState.shadowBlur}px rgba(0,0,0,0.35))`,
               transition: "transform 0.1s ease",
             }}
           />
