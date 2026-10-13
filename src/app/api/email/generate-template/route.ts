@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
     const designation = body.designation || "";
     const industry = body.industry || "";
     const clientNotes = body.clientNotes || "";
+    const referenceFiles: Array<{ name: string; size?: number; type?: string; description?: string }> =
+      body.referenceFiles || [];
     const apiKey =
       body.apiKey ||
       process.env.gemini_api_key ||
@@ -47,6 +49,7 @@ Key Requirements:
    - Header: Elegant branded header with subtle gradient or colored banner (indigo/purple theme: #4f46e5 to #7c3aed), displaying "xMonks" or the relevant solution title.
    - Body Copy: Thoughtful, highly persuasive copy aligned with the requested tone (${tone}) and solution focus (${program}).
    - Personalization: Naturally incorporate the recipient details: ${contactName ? `Recipient: ${contactName}` : ""}${companyName ? `, Company: ${companyName}` : ""}${designation ? `, Role: ${designation}` : ""}${industry ? `, Industry: ${industry}` : ""}. You may use actual values or CRM tags {{contactName}}, {{companyName}}, {{designation}}, {{industry}}.
+   - Attached Reference Files: If the user has attached reference files or collateral, naturally refer to them in the copy (e.g. "I've attached our [document name] for your review") so the recipient knows relevant material is attached.
    - Call To Action (CTA): Prominent, beautifully styled CTA button with high contrast, padding (14px 28px), border-radius: 8px, and hover styling (e.g. Schedule Discovery Call, Explore Leadership Roadmap).
    - Signature: Professional closing block with ${senderName || "{{senderName}}"} and "xMonks Leadership & Transformation".
    - Footer: Sleek, non-intrusive footer with company info and confidentiality note.
@@ -59,6 +62,13 @@ Key Requirements:
   "htmlContent": "<!DOCTYPE html><html>...complete HTML email here...</html>"
 }`;
 
+    const referenceFilesList =
+      referenceFiles && referenceFiles.length > 0
+        ? `\nAttached Reference Files / Documents (included with email):\n${referenceFiles
+            .map((f, i) => `  ${i + 1}. "${f.name}"${f.description ? ` - ${f.description}` : ""}`)
+            .join("\n")}\nNote: Make sure to naturally mention the attached document(s) in the body copy so the recipient knows to review the attachment.`
+        : "";
+
     const userPrompt = `User Requirements / Context:
 "${context}"
 
@@ -68,6 +78,7 @@ Recipient Information:
 - Role / Designation: ${designation || "Leadership"}
 - Industry: ${industry || "Corporate Enterprise"}
 ${clientNotes ? `- Previous Interaction / Notes: ${clientNotes}` : ""}
+${referenceFilesList}
 
 Parameters:
 - Tone of Voice: ${tone}

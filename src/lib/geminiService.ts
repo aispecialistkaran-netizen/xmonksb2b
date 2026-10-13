@@ -125,6 +125,7 @@ export interface GenerateTemplateParams {
   designation?: string;
   industry?: string;
   clientNotes?: string;
+  referenceFiles?: Array<{ name: string; size?: number; type?: string; description?: string }>;
   includeTags?: boolean;
   apiKey?: string;
 }

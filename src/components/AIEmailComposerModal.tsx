@@ -36,6 +36,7 @@ import {
 } from "@/lib/emailService";
 import { EmailAttachment } from "@/constants/emailTemplates";
 import { AttachFromLibraryModal } from "./AttachFromLibraryModal";
+import { EmailAttachmentManager } from "./EmailAttachmentManager";
 
 interface AIEmailComposerModalProps {
   isOpen: boolean;
@@ -157,6 +158,12 @@ export const AIEmailComposerModal: React.FC<AIEmailComposerModalProps> = ({
         designation: client.designation,
         industry: client.industry,
         clientNotes: client.notes,
+        referenceFiles: attachments.map((a) => ({
+          name: a.name,
+          size: a.size,
+          type: a.type,
+          description: a.name,
+        })),
         apiKey: getStoredGeminiKey(),
       });
 
@@ -411,6 +418,23 @@ export const AIEmailComposerModal: React.FC<AIEmailComposerModalProps> = ({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Reference Files & Collateral (Optional) */}
+          <div className="p-3.5 bg-gradient-to-br from-purple-50/60 via-slate-50 to-indigo-50/40 dark:from-purple-950/20 dark:via-slate-900/50 dark:to-indigo-950/20 rounded-2xl border border-purple-200/90 dark:border-purple-800/80 shadow-2xs">
+            <EmailAttachmentManager
+              attachments={attachments}
+              onChange={setAttachments}
+              maxAttachments={6}
+              currentUser={currentUser}
+              isAdmin={
+                currentUser?.username?.toLowerCase() === "admin" ||
+                currentUser?.role?.toLowerCase().includes("admin")
+              }
+              label="Reference Files & Collateral (Optional)"
+              description="Attach approach notes, brochures, pitch decks, or case studies. AI will reference them naturally in the email copy and attach them to the outgoing email."
+              className="bg-transparent"
+            />
           </div>
 
           {/* Action: Generate Button */}
