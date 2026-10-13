@@ -735,16 +735,11 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
             <span className="truncate">Call</span>
             <PhoneCall className="w-4 h-4 text-teal-500 shrink-0" />
           </div>
-          <div className="text-2xl font-black text-teal-600 dark:text-teal-400 flex items-baseline gap-1">
-            <span>{stats.updatedTodayCallCount}</span>
-            {stats.todayCallsTotal > stats.updatedTodayCallCount && (
-              <span className="text-xs font-semibold text-slate-400">
-                ({stats.todayCallsTotal})
-              </span>
-            )}
+          <div className="text-2xl font-black text-teal-600 dark:text-teal-400">
+            {stats.updatedTodayCallCount}
           </div>
           <div className="text-[11px] text-teal-600 dark:text-teal-400 font-medium mt-0.5 truncate">
-            {stats.todayCallsTotal > 0 ? `${stats.todayCallsTotal} calls logged` : "Calls today"}
+            {stats.updatedTodayCallCount > 0 ? `${stats.updatedTodayCallCount} leads contacted` : "No calls today"}
           </div>
         </div>
 
@@ -766,16 +761,11 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
             <span className="truncate">Email</span>
             <Mail className="w-4 h-4 text-purple-500 shrink-0" />
           </div>
-          <div className="text-2xl font-black text-purple-600 dark:text-purple-400 flex items-baseline gap-1">
-            <span>{stats.updatedTodayEmailCount}</span>
-            {stats.todayEmailsTotal > stats.updatedTodayEmailCount && (
-              <span className="text-xs font-semibold text-slate-400">
-                ({stats.todayEmailsTotal})
-              </span>
-            )}
+          <div className="text-2xl font-black text-purple-600 dark:text-purple-400">
+            {stats.updatedTodayEmailCount}
           </div>
           <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium mt-0.5 truncate">
-            {stats.todayEmailsTotal > 0 ? `${stats.todayEmailsTotal} emails sent` : "Emails today"}
+            {stats.updatedTodayEmailCount > 0 ? `${stats.updatedTodayEmailCount} leads contacted` : "No emails today"}
           </div>
         </div>
       </div>
@@ -1484,11 +1474,6 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-teal-100 dark:bg-teal-950/80 text-teal-700 dark:text-teal-300 border border-teal-300/40">
                           <PhoneCall className="w-3 h-3 text-teal-600 dark:text-teal-400" />
                           {item.updatedTodayCall}
-                          {item.todayCallsCount > item.updatedTodayCall && (
-                            <span className="text-[10px] font-medium text-teal-600/70 ml-0.5">
-                              ({item.todayCallsCount})
-                            </span>
-                          )}
                         </span>
                       </td>
 
@@ -1496,11 +1481,6 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-300/40">
                           <Mail className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                           {item.updatedTodayEmail}
-                          {item.todayEmailsCount > item.updatedTodayEmail && (
-                            <span className="text-[10px] font-medium text-purple-600/70 ml-0.5">
-                              ({item.todayEmailsCount})
-                            </span>
-                          )}
                         </span>
                       </td>
 
@@ -1551,17 +1531,11 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-teal-200/80 dark:bg-teal-900 text-teal-800 dark:text-teal-200">
                         {stats.updatedTodayCallCount}
-                        {stats.todayCallsTotal > stats.updatedTodayCallCount && (
-                          <span className="text-[10px] ml-0.5">({stats.todayCallsTotal})</span>
-                        )}
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-purple-200/80 dark:bg-purple-900 text-purple-800 dark:text-purple-200">
                         {stats.updatedTodayEmailCount}
-                        {stats.todayEmailsTotal > stats.updatedTodayEmailCount && (
-                          <span className="text-[10px] ml-0.5">({stats.todayEmailsTotal})</span>
-                        )}
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
