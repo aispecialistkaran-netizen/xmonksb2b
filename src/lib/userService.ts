@@ -40,6 +40,8 @@ export async function seedInitialUsers(): Promise<void> {
       const snap = await getDoc(docRef);
       if (!snap.exists()) {
         await setDoc(docRef, u);
+      } else if (u.allowedTabs && !(snap.data() as UserAccount).allowedTabs) {
+        await setDoc(docRef, { allowedTabs: u.allowedTabs }, { merge: true });
       }
     }
   } catch (e) {
@@ -69,6 +71,14 @@ export async function authenticateUserFromFirestore(
     if (docSnap.exists()) {
       const user = docSnap.data() as UserAccount;
       if (user.password === cleanPass || user.password.toLowerCase() === cleanPass.toLowerCase()) {
+        if (staticMatch) {
+          const merged: UserAccount = {
+            ...staticMatch,
+            ...user,
+            allowedTabs: user.allowedTabs || staticMatch.allowedTabs,
+          };
+          return merged;
+        }
         return user;
       }
       // If password in Firestore didn't match, but matches static configuration, update Firestore with static record

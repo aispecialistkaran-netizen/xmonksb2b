@@ -264,15 +264,22 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   );
 
   // Role-Based Access Control:
-  // Admin can view and access delivery records of ALL client partners.
+  // Admin and Delivery Operations users (e.g. Vikram) can view and access delivery records of ALL client partners.
   // Regular Client Partners can ONLY view and access their own delivery records.
+  const isDeliveryCoordinator = Boolean(
+    currentUser?.username.toLowerCase() === "vikram" ||
+    currentUser?.role.toLowerCase().includes("delivery") ||
+    currentUser?.username.toLowerCase() === "accounts" ||
+    currentUser?.role.toLowerCase().includes("accounts")
+  );
+
   const accessibleDeliveryRecords = useMemo(() => {
-    if (isAdmin) {
+    if (isAdmin || isDeliveryCoordinator) {
       return deliveryRecords;
     }
     if (!currentUser) return [];
     return deliveryRecords.filter((r) => isRecordOwnedByUser(r, currentUser));
-  }, [deliveryRecords, isAdmin, currentUser, isRecordOwnedByUser]);
+  }, [deliveryRecords, isAdmin, isDeliveryCoordinator, currentUser, isRecordOwnedByUser]);
 
   // Guard: if current selectedRecordId is not in accessible records, clear selection
   useEffect(() => {
@@ -282,11 +289,11 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   }, [selectedRecordId, accessibleDeliveryRecords]);
 
   // Filter won closure leads from pipeline that can be imported to Delivery
-  // Admin can import won deals from all leads; Client Partners can ONLY import their own closure deals
+  // Admin & Delivery Coordinators can import won deals from all leads; Client Partners can ONLY import their own closure deals
   const closureLeads = useMemo(() => {
-    const source = isAdmin ? allLeads : leads;
+    const source = (isAdmin || isDeliveryCoordinator) ? allLeads : leads;
     return source.filter((l) => l.stage === "closure");
-  }, [isAdmin, allLeads, leads]);
+  }, [isAdmin, isDeliveryCoordinator, allLeads, leads]);
 
   // Record currently selected for viewing/editing (strictly scoped to accessible records)
   const selectedRecord = useMemo(() => {

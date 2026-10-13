@@ -107,6 +107,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentUser?.username.toLowerCase() === "accounts" ||
       currentUser?.role.toLowerCase().includes("accounts")
   );
+  const isDeliveryOnly = Boolean(
+    currentUser?.username.toLowerCase() === "vikram" ||
+      currentUser?.role.toLowerCase().includes("delivery") ||
+      (currentUser?.allowedTabs &&
+        currentUser.allowedTabs.length === 1 &&
+        currentUser.allowedTabs[0] === "delivery")
+  );
 
   const handleTabClick = (tab: NavTab) => {
     setActiveTab(tab);
@@ -131,7 +138,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Kanban,
       color: "text-indigo-600 dark:text-indigo-400",
       activeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
-      hidden: isAccounts,
+      hidden: isAccounts || isDeliveryOnly,
     },
     {
       id: "table",
@@ -139,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: TableIcon,
       color: "text-indigo-600 dark:text-indigo-400",
       activeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
-      hidden: isAccounts,
+      hidden: isAccounts || isDeliveryOnly,
     },
     {
       id: "outreach",
@@ -147,7 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: SendHorizontal,
       color: "text-blue-600 dark:text-blue-400",
       activeBg: "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800",
-      hidden: isAccounts,
+      hidden: isAccounts || isDeliveryOnly,
     },
     {
       id: "touchpoints",
@@ -155,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Clock,
       color: "text-blue-600 dark:text-blue-400",
       activeBg: "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800",
-      hidden: isAccounts,
+      hidden: isAccounts || isDeliveryOnly,
     },
     {
       id: "analytics",
@@ -163,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: PieChart,
       color: "text-indigo-600 dark:text-indigo-400",
       activeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
-      hidden: isAccounts,
+      hidden: isAccounts || isDeliveryOnly,
     },
   ];
 
@@ -174,7 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Mail,
       color: "text-purple-600 dark:text-purple-400",
       activeBg: "bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800",
-      hidden: isAccounts,
+      hidden: isAccounts || isDeliveryOnly,
     },
     {
       id: "library",
@@ -182,7 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: FolderOpen,
       color: "text-indigo-600 dark:text-indigo-400",
       activeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
-      hidden: false,
+      hidden: isDeliveryOnly,
     },
     {
       id: "prospector",
@@ -190,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Sparkles,
       color: "text-amber-600 dark:text-amber-400",
       activeBg: "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800",
-      hidden: isAccounts,
+      hidden: isAccounts || isDeliveryOnly,
     },
   ];
 
@@ -217,7 +224,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Code2,
       color: "text-indigo-600 dark:text-indigo-400",
       activeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
-      hidden: !isAdmin || isAccounts,
+      hidden: !isAdmin || isAccounts || isDeliveryOnly,
     },
   ];
 
@@ -304,14 +311,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 B2B
               </span>
               <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                {isAccounts ? "Accounts" : "v2.0"}
+                {isAccounts ? "Accounts" : isDeliveryOnly ? "Delivery" : "v2.0"}
               </span>
             </div>
           </div>
         </div>
 
         <div className="flex items-center space-x-2">
-          {!isAccounts && (
+          {!isAccounts && !isDeliveryOnly && (
             <button
               onClick={onOpenAddModal}
               className="p-2 rounded-xl bg-indigo-600 text-white font-bold text-xs shadow-md shadow-indigo-500/20 flex items-center space-x-1"
@@ -372,11 +379,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       B2B
                     </span>
                     <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex-shrink-0">
-                      {isAccounts ? "Accounts" : "v2.0"}
+                      {isAccounts ? "Accounts" : isDeliveryOnly ? "Delivery" : "v2.0"}
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5 font-medium">
-                    {isAccounts ? "Finance & Invoicing" : "Stage Weightage CRM"}
+                    {isAccounts ? "Finance & Invoicing" : isDeliveryOnly ? "Delivery Operations" : "Stage Weightage CRM"}
                   </p>
                 </div>
               )}
@@ -405,7 +412,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Quick Actions Strip */}
-          {!isAccounts && (
+          {!isAccounts && !isDeliveryOnly && (
             <div className="space-y-1.5">
               <SpringButton
                 variant="primary"
@@ -479,7 +486,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </div>
 
-              {!isAccounts && (
+              {!isAccounts && !isDeliveryOnly && (
                 <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-[11px]">
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Pipeline Value</span>
@@ -533,6 +540,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
                       {isAccounts
                         ? "Accounts"
+                        : isDeliveryOnly
+                        ? "Delivery Operations"
                         : currentUser.username.toLowerCase() === "admin"
                         ? "Administrator"
                         : "Client Partner"}

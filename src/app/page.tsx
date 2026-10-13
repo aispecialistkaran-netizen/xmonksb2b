@@ -193,6 +193,14 @@ export default function Home() {
     currentUser?.username.toLowerCase() === "accounts" ||
     currentUser?.role.toLowerCase().includes("accounts")
   );
+  const isDeliveryOnly = Boolean(
+    currentUser?.username.toLowerCase() === "vikram" ||
+    currentUser?.role.toLowerCase().includes("delivery") ||
+    (currentUser?.allowedTabs &&
+      currentUser.allowedTabs.length === 1 &&
+      currentUser.allowedTabs[0] === "delivery")
+  );
+  const isRestrictedToDelivery = isAccounts || isDeliveryOnly;
 
   // 2-Second Money.json initial page loading state
   const [isInitialPageLoading, setIsInitialPageLoading] = useState<boolean>(true);
@@ -233,7 +241,10 @@ export default function Home() {
         const u = JSON.parse(storedUser);
         if (
           u?.username?.toLowerCase() === "accounts" ||
-          u?.role?.toLowerCase().includes("accounts")
+          u?.role?.toLowerCase().includes("accounts") ||
+          u?.username?.toLowerCase() === "vikram" ||
+          u?.role?.toLowerCase().includes("delivery") ||
+          (u?.allowedTabs && u.allowedTabs.length === 1 && u.allowedTabs[0] === "delivery")
         ) {
           return "delivery";
         }
@@ -277,7 +288,10 @@ export default function Home() {
     }, 2000);
     if (
       user.username.toLowerCase() === "accounts" ||
-      user.role.toLowerCase().includes("accounts")
+      user.role.toLowerCase().includes("accounts") ||
+      user.username.toLowerCase() === "vikram" ||
+      user.role.toLowerCase().includes("delivery") ||
+      (user.allowedTabs && user.allowedTabs.length === 1 && user.allowedTabs[0] === "delivery")
     ) {
       setActiveTab("delivery");
     }
@@ -314,7 +328,9 @@ export default function Home() {
       // Only set initial tab from preferences ONCE on load, and NEVER if the user has already changed tabs
       if (!initialTabLoadedRef.current && !userHasChangedTabRef.current && prefs.activeTab) {
         initialTabLoadedRef.current = true;
-        if (prefs.activeTab === "developer" && !isAdmin) {
+        if (isRestrictedToDelivery) {
+          setActiveTab("delivery");
+        } else if (prefs.activeTab === "developer" && !isAdmin) {
           setActiveTab("kanban");
         } else {
           setActiveTab(prefs.activeTab as NavTab);
@@ -329,7 +345,7 @@ export default function Home() {
     });
 
     return () => unsub();
-  }, [currentUser, isAdmin]);
+  }, [currentUser, isAdmin, isRestrictedToDelivery]);
 
   // Ensure non-admin users can never land on or stay on the developer tab
   useEffect(() => {
@@ -349,16 +365,16 @@ export default function Home() {
     };
   }, []);
 
-  // Ensure accounts user always stays on the delivery tab
+  // Ensure accounts & delivery-only users always stay on the delivery tab
   useEffect(() => {
-    if (isAccounts && activeTab !== "delivery") {
+    if (isRestrictedToDelivery && activeTab !== "delivery") {
       setActiveTab("delivery");
     }
-  }, [isAccounts, activeTab]);
+  }, [isRestrictedToDelivery, activeTab]);
 
   // Handlers to synchronize UI state to Firestore
   const handleTabChange = (tab: NavTab) => {
-    if (isAccounts && tab !== "delivery") {
+    if (isRestrictedToDelivery && tab !== "delivery") {
       return;
     }
     if (tab === "developer" && !isAdmin) {
@@ -484,7 +500,9 @@ export default function Home() {
       currentUser.username.toLowerCase() === "admin" ||
       currentUser.role.toLowerCase().includes("admin") ||
       currentUser.username.toLowerCase() === "accounts" ||
-      currentUser.role.toLowerCase().includes("accounts");
+      currentUser.role.toLowerCase().includes("accounts") ||
+      currentUser.username.toLowerCase() === "vikram" ||
+      currentUser.role.toLowerCase().includes("delivery");
 
     if (isSuperUser) return leads;
 
@@ -2194,7 +2212,7 @@ export default function Home() {
         </div>
 
         {/* KPI Dashboard Summary Bar & Filter Bar for Lead Management tabs */}
-        {!isAccounts && (activeTab === "kanban" || activeTab === "table" || activeTab === "analytics") && (
+        {!isRestrictedToDelivery && (activeTab === "kanban" || activeTab === "table" || activeTab === "analytics") && (
           <>
             <DashboardStats leads={filteredLeads} />
             <FilterBar
@@ -2223,7 +2241,7 @@ export default function Home() {
         )}
 
         {/* Tab Views */}
-        {!isAccounts && activeTab === "kanban" && (
+        {!isRestrictedToDelivery && activeTab === "kanban" && (
           <KanbanBoard
             leads={filteredLeads}
             onSelectLead={(lead) => setSelectedLead(lead)}
@@ -2234,7 +2252,7 @@ export default function Home() {
           />
         )}
 
-        {!isAccounts && activeTab === "table" && (
+        {!isRestrictedToDelivery && activeTab === "table" && (
           <LeadTable
             leads={filteredLeads}
             onSelectLead={(lead) => setSelectedLead(lead)}
@@ -2249,7 +2267,7 @@ export default function Home() {
           />
         )}
 
-        {!isAccounts && activeTab === "outreach" && (
+        {!isRestrictedToDelivery && activeTab === "outreach" && (
           <OutreachTab
             coldClients={userScopedColdClients}
             onAddColdClient={handleAddColdClient}
@@ -2280,7 +2298,7 @@ export default function Home() {
           />
         )}
 
-        {!isAccounts && activeTab === "touchpoints" && (
+        {!isRestrictedToDelivery && activeTab === "touchpoints" && (
           <TouchpointHistoryTab
             coldClients={userScopedColdClients}
             currentUser={currentUser}
@@ -2300,14 +2318,14 @@ export default function Home() {
           />
         )}
 
-        {!isAccounts && activeTab === "analytics" && (
+        {!isRestrictedToDelivery && activeTab === "analytics" && (
           <AnalyticsCharts
             leads={filteredLeads}
             onSelectLead={(lead) => setSelectedLead(lead)}
           />
         )}
 
-        {!isAccounts && activeTab === "email" && (
+        {!isRestrictedToDelivery && activeTab === "email" && (
           <EmailCampaignTab
             leads={userScopedLeads}
             currentUser={currentUser}
@@ -2319,7 +2337,7 @@ export default function Home() {
           />
         )}
 
-        {activeTab === "library" && (
+        {!isRestrictedToDelivery && activeTab === "library" && (
           <LibraryTab
             currentUser={currentUser}
             isAdmin={isAdmin}
@@ -2332,7 +2350,7 @@ export default function Home() {
           />
         )}
 
-        {!isAccounts && activeTab === "prospector" && (
+        {!isRestrictedToDelivery && activeTab === "prospector" && (
           <ProspectorTab
             currentUser={currentUser}
             isAdmin={isAdmin}
@@ -2352,7 +2370,7 @@ export default function Home() {
           />
         )}
 
-        {!isAccounts && activeTab === "developer" && isAdmin && (
+        {!isRestrictedToDelivery && activeTab === "developer" && isAdmin && (
           <DeveloperTab onOpenChangePassword={() => setIsChangePasswordModalOpen(true)} />
         )}
       </main>
@@ -2614,8 +2632,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* Lead Detail & Customer Journey Modal (Disabled for Accounts) */}
-      {!isAccounts && (
+      {/* Lead Detail & Customer Journey Modal (Disabled for Accounts and Delivery Operations) */}
+      {!isRestrictedToDelivery && (
         <LeadDetailModal
           lead={selectedLead}
           currentUser={currentUser}
@@ -2645,8 +2663,8 @@ export default function Home() {
         />
       )}
 
-      {/* Add New Lead Modal (Disabled for Accounts) */}
-      {!isAccounts && (
+      {/* Add New Lead Modal (Disabled for Accounts and Delivery Operations) */}
+      {!isRestrictedToDelivery && (
         <AddLeadModal
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
@@ -2655,8 +2673,8 @@ export default function Home() {
         />
       )}
 
-      {/* Bulk Upload CSV Modal (Disabled for Accounts) */}
-      {!isAccounts && (
+      {/* Bulk Upload CSV Modal (Disabled for Accounts and Delivery Operations) */}
+      {!isRestrictedToDelivery && (
         <BulkUploadModal
           isOpen={isBulkModalOpen}
           onClose={() => setIsBulkModalOpen(false)}
@@ -2677,6 +2695,8 @@ export default function Home() {
           <p>
             {isAccounts
               ? "xMonks B2B CRM • Accounts & Billing Department Portal"
+              : isDeliveryOnly
+              ? "xMonks B2B CRM • Delivery Operations Portal"
               : "xMonks B2B Lead Journey CRM • Firebase Integration (`xmonksb2b2`) • Stage Weightage Calculations & Real-Time Date-Time Logs"}
           </p>
         </footer>
