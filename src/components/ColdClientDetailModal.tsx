@@ -62,6 +62,7 @@ import {
   recordUsedEmails,
 } from "@/lib/contactSuggestionService";
 import { ModernTimePicker } from "./ModernTimePicker";
+import { AIEmailComposerModal } from "./AIEmailComposerModal";
 
 function getTodayDateString(): string {
   const d = new Date();
@@ -267,6 +268,8 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
   const [emailBcc, setEmailBcc] = useState("");
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
+  // AI Email Composer Modal
+  const [isAIEmailModalOpen, setIsAIEmailModalOpen] = useState(false);
   const [suggestedContacts, setSuggestedContacts] = useState<ContactSuggestion[]>(getStoredContactSuggestions());
 
   useEffect(() => {
@@ -1285,6 +1288,17 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
                       </button>
                     )}
                   </div>
+
+                  {/* Send Email via AI Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsAIEmailModalOpen(true)}
+                    className="px-3 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs shadow-purple-500/25 transition-all hover:scale-102 active:scale-98 cursor-pointer shrink-0"
+                    title="Generate and send personalized HTML email with Gemini AI"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                    <span>Send Email via AI</span>
+                  </button>
                 </div>
 
                 {emailSendStatus && (
@@ -1679,14 +1693,27 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
                 <span className="text-[11px] text-slate-400">
                   {currentUser?.name ? `Logged by: ${currentUser.name}` : ""}
                 </span>
-                <button
-                  type="submit"
-                  disabled={isLoggingTp || !tpSummary.trim()}
-                  className="px-5 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-sm hover:shadow transition-all disabled:opacity-50 flex items-center space-x-1.5 cursor-pointer active:scale-98"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{isLoggingTp ? "Logging Activity..." : "Log Activity"}</span>
-                </button>
+                <div className="flex items-center space-x-2">
+                  {tpChannel === "email" && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAIEmailModalOpen(true)}
+                      className="px-3 py-2 text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer active:scale-98"
+                      title="Draft & send personalized HTML email using AI"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Draft & Send via AI</span>
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isLoggingTp || !tpSummary.trim()}
+                    className="px-5 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-sm hover:shadow transition-all disabled:opacity-50 flex items-center space-x-1.5 cursor-pointer active:scale-98"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{isLoggingTp ? "Logging Activity..." : "Log Activity"}</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -2594,6 +2621,23 @@ export const ColdClientDetailModal: React.FC<ColdClientDetailModalProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* AI Email Composer Modal */}
+        {client && (
+          <AIEmailComposerModal
+            isOpen={isAIEmailModalOpen}
+            onClose={() => setIsAIEmailModalOpen(false)}
+            client={client}
+            currentUser={currentUser}
+            onLogTouchpoint={onLogTouchpoint}
+            onEmailSentSuccessfully={(summary) => {
+              setEmailSendStatus({
+                type: "success",
+                message: summary,
+              });
+            }}
+          />
         )}
       </div>
     </div>

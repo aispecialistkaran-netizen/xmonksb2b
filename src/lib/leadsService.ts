@@ -1652,4 +1652,59 @@ export async function setLeadPrimaryContact(
   return updatedLead;
 }
 
+/**
+ * Marks an upcoming/due target closing date or follow-up for a pipeline lead as completed:
+ * clears expectedCloseDate and adds an audit journey log.
+ */
+export async function completeLeadFollowup(
+  leadId: string,
+  author: string = "Admin User",
+  note?: string
+): Promise<Lead | null> {
+  const localLeads = getStoredLocalLeads();
+  const target = localLeads.find((l) => l.id === leadId);
+  if (!target) return null;
+
+  const now = new Date();
+  const timestampIso = now.toISOString();
+  const formattedDate = formatTimestamp(now);
+
+  const completionLog: JourneyLog = {
+    id: "log-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+    timestamp: timestampIso,
+    formattedDate: formattedDate,
+    type: "note",
+    title: "Follow-up Target Completed",
+    description: note || "Scheduled target follow-up date marked as completed.",
+    author: author,
+  };
+
+  const updatedLead: Lead = {
+    ...target,
+    expectedCloseDate: "",
+    updatedAt: timestampIso,
+    journeyLogs: [completionLog, ...target.journeyLogs],
+  };
+
+  // Firestore Update
+  try {
+    const docRef = doc(db, COLLECTION_NAME, leadId);
+    await updateDoc(
+      docRef,
+      sanitizeForFirestore({
+        expectedCloseDate: null,
+        updatedAt: timestampIso,
+        journeyLogs: updatedLead.journeyLogs,
+      })
+    );
+  } catch (err) {
+    console.warn("Firestore complete lead follow-up skipped, updating local state", err);
+  }
+
+  const updatedLeads = localLeads.map((l) => (l.id === leadId ? updatedLead : l));
+  saveStoredLocalLeads(updatedLeads);
+
+  return updatedLead;
+}
+
 

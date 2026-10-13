@@ -761,3 +761,26 @@ export async function addReplyToAdminComment(
 
   return newReply;
 }
+
+/**
+ * Marks an upcoming/due follow-up for a cold client as completed:
+ * clears nextFollowUpDate & nextFollowUpTime and logs an activity touchpoint.
+ */
+export async function completeColdClientFollowup(
+  clientId: string,
+  author: string = "Admin User",
+  note?: string
+): Promise<void> {
+  const now = new Date();
+  const activityDate = now.toISOString().split("T")[0];
+  const summaryText = note || "Follow-up marked as completed";
+
+  await logOutreachTouchpoint(clientId, {
+    channel: "note",
+    summary: summaryText,
+    author: author,
+    nextFollowUpDate: "",
+    nextFollowUpTime: "",
+    activityDate: activityDate,
+  });
+}

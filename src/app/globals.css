@@ -19,18 +19,25 @@ body {
   overflow-x: hidden;
 }
 
-/* Custom scrollbar styling */
+/* Custom scrollbar styling (Orange) */
+html, body {
+  scrollbar-color: #f97316 transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: #f97316;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: #ea580c;
+}
+::-webkit-scrollbar-thumb:active {
+  background: #c2410c;
 }

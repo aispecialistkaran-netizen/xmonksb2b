@@ -120,6 +120,11 @@ export interface GenerateTemplateParams {
   tone?: string;
   program?: string;
   senderName?: string;
+  contactName?: string;
+  companyName?: string;
+  designation?: string;
+  industry?: string;
+  clientNotes?: string;
   includeTags?: boolean;
   apiKey?: string;
 }

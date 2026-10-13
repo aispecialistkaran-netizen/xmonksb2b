@@ -26,6 +26,7 @@ import {
   updateLeadPrimaryContact,
   editLeadContact,
   setLeadPrimaryContact,
+  completeLeadFollowup,
 } from "@/lib/leadsService";
 import { exportLeadsToCSV } from "@/lib/exportService";
 import { Sidebar, NavTab } from "@/components/Sidebar";
@@ -62,6 +63,7 @@ import {
   addAdminCommentToColdClient,
   markAdminCommentRead,
   addReplyToAdminComment,
+  completeColdClientFollowup,
 } from "@/lib/outreachService";
 import { STAGES } from "@/constants/stages";
 import { LoginForm } from "@/components/LoginForm";
@@ -77,6 +79,7 @@ import { createDeliveryRecordFromLead } from "@/lib/deliveryService";
 import {
   Receipt,
   CheckCircle2,
+  CheckCheck,
   ArrowRight,
   X,
   Bell,
@@ -1009,6 +1012,8 @@ export default function Home() {
   const [inlineReplyText, setInlineReplyText] = useState("");
   const [isSubmittingInlineReply, setIsSubmittingInlineReply] = useState(false);
   const [notificationHistorySearch, setNotificationHistorySearch] = useState("");
+  const [completingFollowupId, setCompletingFollowupId] = useState<string | null>(null);
+  const [isCompletingAllToday, setIsCompletingAllToday] = useState<boolean>(false);
 
   // Upcoming Follow-up Reminders for Outreach Clients and Pipeline Leads
   const followupReminders = useMemo(() => {
@@ -1298,6 +1303,118 @@ export default function Home() {
     return unreadAdminDirectives.find((d) => !dismissedDirectiveIds.includes(d.comment.id)) || null;
   }, [unreadAdminDirectives, dismissedDirectiveIds]);
 
+  // Mark a single follow-up reminder as completed
+  const handleMarkFollowupCompleted = async (f: {
+    id: string;
+    sourceType: "outreach" | "pipeline";
+    companyName: string;
+    [key: string]: unknown;
+  }) => {
+    try {
+      setCompletingFollowupId(f.id);
+      const author = currentUser?.name || currentUser?.username || "Admin User";
+
+      if (f.sourceType === "outreach") {
+        // Optimistically update coldClients state
+        setColdClients((prev) =>
+          prev.map((c) =>
+            c.id === f.id
+              ? {
+                  ...c,
+                  nextFollowUpDate: "",
+                  nextFollowUpTime: "",
+                  lastContactDate: new Date().toISOString().split("T")[0],
+                }
+              : c
+          )
+        );
+
+        await completeColdClientFollowup(f.id, author);
+      } else {
+        // Pipeline Lead
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === f.id
+              ? {
+                  ...l,
+                  expectedCloseDate: "",
+                }
+              : l
+          )
+        );
+
+        await completeLeadFollowup(f.id, author);
+      }
+
+      // Small confetti celebration
+      try {
+        confetti({
+          particleCount: 30,
+          spread: 50,
+          origin: { y: 0.25, x: 0.8 },
+        });
+      } catch {}
+    } catch (err) {
+      console.error("Error marking followup as completed:", err);
+    } finally {
+      setCompletingFollowupId(null);
+    }
+  };
+
+  // Mark all today follow-ups as completed in one click
+  const handleMarkAllTodayFollowupsCompleted = async () => {
+    if (dueTodayFollowups.length === 0) return;
+    try {
+      setIsCompletingAllToday(true);
+      const author = currentUser?.name || currentUser?.username || "Admin User";
+
+      // Optimistically clear all today follow-ups from local state
+      const todayIds = new Set(dueTodayFollowups.map((f) => f.id));
+      setColdClients((prev) =>
+        prev.map((c) =>
+          todayIds.has(c.id)
+            ? {
+                ...c,
+                nextFollowUpDate: "",
+                nextFollowUpTime: "",
+                lastContactDate: new Date().toISOString().split("T")[0],
+              }
+            : c
+        )
+      );
+      setLeads((prev) =>
+        prev.map((l) =>
+          todayIds.has(l.id)
+            ? {
+                ...l,
+                expectedCloseDate: "",
+              }
+            : l
+        )
+      );
+
+      for (const f of dueTodayFollowups) {
+        if (f.sourceType === "outreach") {
+          await completeColdClientFollowup(f.id, author);
+        } else {
+          await completeLeadFollowup(f.id, author);
+        }
+      }
+
+      try {
+        confetti({
+          particleCount: 60,
+          spread: 70,
+          origin: { y: 0.3, x: 0.8 },
+        });
+      } catch {}
+    } catch (err) {
+      console.error("Error completing all today followups:", err);
+    } finally {
+      setIsCompletingAllToday(false);
+    }
+  };
+
   // Send Closure Lead to Delivery
   const [deliveryToast, setDeliveryToast] = useState<{
     show: boolean;
@@ -1576,9 +1693,22 @@ export default function Home() {
                             </button>
                           </div>
 
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            {displayedFollowups.length} scheduled
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {followupFilterTab === "today" && dueTodayFollowups.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={handleMarkAllTodayFollowupsCompleted}
+                                disabled={isCompletingAllToday}
+                                className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                <CheckCheck className="w-3 h-3" />
+                                <span>{isCompletingAllToday ? "Completing all..." : "Mark all as completed"}</span>
+                              </button>
+                            )}
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              {displayedFollowups.length} scheduled
+                            </span>
+                          </div>
                         </div>
 
                         {/* Search input if > 3 follow-ups */}
@@ -1686,7 +1816,7 @@ export default function Home() {
                                 )}
 
                                 {/* Action Buttons */}
-                                <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800 flex-wrap">
                                   <div className="flex items-center space-x-2 text-[10px] text-slate-400">
                                     {f.contactPhone && (
                                       <span className="flex items-center gap-1">
@@ -1695,22 +1825,39 @@ export default function Home() {
                                     )}
                                   </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (f.sourceType === "outreach") {
-                                        setSelectedOutreachClientId(f.id);
-                                        handleTabChange("outreach");
-                                      } else {
-                                        setSelectedLead(f.rawItem as Lead);
-                                      }
-                                      setIsNotificationCenterOpen(false);
-                                    }}
-                                    className="px-2.5 py-1 text-[11px] font-black bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow-xs flex items-center space-x-1 cursor-pointer"
-                                  >
-                                    <span>Open {f.sourceType === "outreach" ? "Outreach" : "Lead"}</span>
-                                    <ArrowRight className="w-3 h-3" />
-                                  </button>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {(f.urgency === "due_today" || f.urgency === "overdue" || followupFilterTab === "today") && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleMarkFollowupCompleted(f)}
+                                        disabled={completingFollowupId === f.id || isCompletingAllToday}
+                                        className="px-2.5 py-1 text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 rounded-lg transition flex items-center space-x-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                                        title="Mark this follow-up as completed"
+                                      >
+                                        <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                        <span>
+                                          {completingFollowupId === f.id ? "Completing..." : "Mark as completed"}
+                                        </span>
+                                      </button>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (f.sourceType === "outreach") {
+                                          setSelectedOutreachClientId(f.id);
+                                          handleTabChange("outreach");
+                                        } else {
+                                          setSelectedLead(f.rawItem as Lead);
+                                        }
+                                        setIsNotificationCenterOpen(false);
+                                      }}
+                                      className="px-2.5 py-1 text-[11px] font-black bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow-xs flex items-center space-x-1 cursor-pointer"
+                                    >
+                                      <span>Open {f.sourceType === "outreach" ? "Outreach" : "Lead"}</span>
+                                      <ArrowRight className="w-3 h-3" />
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             ))
@@ -2424,6 +2571,18 @@ export default function Home() {
               >
                 <span>Open {activeFloatingFollowup.sourceType === "outreach" ? "Lead" : "Pipeline"}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await handleMarkFollowupCompleted(activeFloatingFollowup);
+                  setDismissedFollowupReminderIds((prev) => [...prev, activeFloatingFollowup.id]);
+                }}
+                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow flex items-center space-x-1 cursor-pointer"
+                title="Mark this follow-up as completed"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Mark Completed</span>
               </button>
               <button
                 type="button"

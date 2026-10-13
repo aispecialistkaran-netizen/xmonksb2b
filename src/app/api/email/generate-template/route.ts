@@ -7,6 +7,11 @@ export async function POST(req: NextRequest) {
     const tone = body.tone || "executive";
     const program = body.program || "General";
     const senderName = body.senderName || "xMonks Team";
+    const contactName = body.contactName || body.recipientName || "";
+    const companyName = body.companyName || "";
+    const designation = body.designation || "";
+    const industry = body.industry || "";
+    const clientNotes = body.clientNotes || "";
     const apiKey =
       body.apiKey ||
       process.env.gemini_api_key ||
@@ -24,7 +29,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "Gemini API key is not configured. Please add your key in the Developer tab.",
+          error: "Gemini API key is not configured. Please ensure 'gemini_api_key' is set in your .env file.",
         },
         { status: 400 }
       );
@@ -32,19 +37,19 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = `You are an elite B2B Enterprise Copywriter and Email Template Designer for xMonks (a premier corporate leadership, executive coaching, and L&D transformation partner).
 
-Your task is to take the user's business context, goal, or rough email draft and transform it into a stunning, responsive, high-converting HTML email template.
+Your task is to take the user's business context, goal, or rough email draft and transform it into a stunning, responsive, high-converting HTML email.
 
 Key Requirements:
-1. SUBJECT LINE: Create an irresistible, professional, personalized B2B subject line (can include {{contactName}} or {{companyName}} where appropriate).
+1. SUBJECT LINE: Create an irresistible, professional, personalized B2B subject line (incorporating the recipient's name or company name where appropriate).
 2. HTML STRUCTURE:
    - Must use inline CSS on all elements for universal email client compatibility (Gmail, Outlook, Apple Mail).
    - Centered container with max-width: 600px, background: #f8fafc, card container background: #ffffff, border-radius: 16px, border: 1px solid #e2e8f0, box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05).
    - Header: Elegant branded header with subtle gradient or colored banner (indigo/purple theme: #4f46e5 to #7c3aed), displaying "xMonks" or the relevant solution title.
    - Body Copy: Thoughtful, highly persuasive copy aligned with the requested tone (${tone}) and solution focus (${program}).
-   - Personalization: Naturally incorporate CRM tags: {{contactName}}, {{companyName}}, {{designation}}, {{industry}} where beneficial.
-   - Call To Action (CTA): Prominent, beautifully styled CTA button with high contrast, padding (14px 28px), border-radius (8px), and hover styling.
-   - Signature: Professional closing block with {{senderName}} and "xMonks Leadership & Transformation".
-   - Footer: Sleek, non-intrusive footer with company info and unsubscribe/preferences links.
+   - Personalization: Naturally incorporate the recipient details: ${contactName ? `Recipient: ${contactName}` : ""}${companyName ? `, Company: ${companyName}` : ""}${designation ? `, Role: ${designation}` : ""}${industry ? `, Industry: ${industry}` : ""}. You may use actual values or CRM tags {{contactName}}, {{companyName}}, {{designation}}, {{industry}}.
+   - Call To Action (CTA): Prominent, beautifully styled CTA button with high contrast, padding (14px 28px), border-radius: 8px, and hover styling (e.g. Schedule Discovery Call, Explore Leadership Roadmap).
+   - Signature: Professional closing block with ${senderName || "{{senderName}}"} and "xMonks Leadership & Transformation".
+   - Footer: Sleek, non-intrusive footer with company info and confidentiality note.
 3. OUTPUT FORMAT:
    You MUST respond ONLY with a valid JSON object. Do not include markdown code block backticks outside the JSON. Format:
 {
@@ -57,18 +62,26 @@ Key Requirements:
     const userPrompt = `User Requirements / Context:
 "${context}"
 
+Recipient Information:
+- Target Contact: ${contactName || "Decision Maker"}
+- Company: ${companyName || "Client Organization"}
+- Role / Designation: ${designation || "Leadership"}
+- Industry: ${industry || "Corporate Enterprise"}
+${clientNotes ? `- Previous Interaction / Notes: ${clientNotes}` : ""}
+
 Parameters:
 - Tone of Voice: ${tone}
 - Program / Solution Area: ${program}
 - Sender Name: ${senderName}
 
-Generate the JSON response with the email subject and full HTML email template.`;
+Generate the JSON response with the email subject and full HTML email.`;
 
     const CANDIDATE_MODELS = [
-      "gemini-flash-latest",
-      "gemini-3.6-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.8-flash",
       "gemini-3.5-flash",
       "gemini-3.7-flash",
+      "gemini-flash-latest",
     ];
 
     let rawOutput = "";
