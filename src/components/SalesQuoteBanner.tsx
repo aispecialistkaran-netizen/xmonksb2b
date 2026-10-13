@@ -83,7 +83,7 @@ export const SalesQuoteBanner: React.FC = () => {
 
   return (
     <div
-      className="hidden md:flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl shadow-2xs max-w-xl xl:max-w-2xl min-w-0 transition-all hover:border-amber-300 dark:hover:border-amber-700 group"
+      className="hidden md:flex items-center space-x-2.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl shadow-2xs max-w-2xl xl:max-w-4xl transition-all hover:border-amber-300 dark:hover:border-amber-700 group flex-1"
       title={`"${quoteData.quote}" — Click copy icon or refresh for a new one`}
     >
       {/* Icon Pill */}
@@ -92,13 +92,13 @@ export const SalesQuoteBanner: React.FC = () => {
       </div>
 
       {/* Quote Content */}
-      <div className="flex items-center space-x-2 min-w-0 flex-1">
-        <p className="text-xs font-medium italic text-slate-800 dark:text-slate-200 truncate leading-snug">
+      <div className="flex items-center space-x-2 flex-1 min-w-0">
+        <p className="text-xs font-medium italic text-slate-800 dark:text-slate-200 leading-snug">
           &ldquo;{quoteData.quote}&rdquo;
         </p>
 
         {quoteData.tag && (
-          <span className="hidden xl:inline-flex items-center px-1.5 py-0.2 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/80 shrink-0">
+          <span className="inline-flex items-center px-1.5 py-0.2 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/80 shrink-0">
             {quoteData.tag}
           </span>
         )}
