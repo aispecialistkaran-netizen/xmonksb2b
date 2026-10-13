@@ -42,20 +42,72 @@ export const DeliveryTimelineView: React.FC<DeliveryTimelineViewProps> = ({
   // Helper to determine the start and end month indices (0-11) for a record
   const getTimelineIndices = (r: DeliveryRecord) => {
     let startIdx = 0;
-    let endIdx = 5; // default 6-month journey
+    let endIdx = 5;
 
-    if (r.startDate) {
-      const d = new Date(r.startDate);
-      if (!isNaN(d.getTime())) startIdx = d.getMonth();
+    // Helper to safely extract a month index (0-11) from any date or ISO string
+    const getMonthIndex = (val?: string | null): number | null => {
+      if (!val) return null;
+      const clean = val.trim().split("T")[0];
+      const match = clean.match(/^(\d{4})-(\d{1,2})/);
+      if (match) {
+        const monthNum = parseInt(match[2], 10);
+        if (monthNum >= 1 && monthNum <= 12) {
+          return monthNum - 1;
+        }
+      }
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d.getMonth();
+      return null;
+    };
+
+    // 1. Resolve start month index (prefer closureMonth if available as the win/start date, otherwise startDate, createdAt)
+    const closureIdx = getMonthIndex(r.closureMonth);
+    const startIdxDirect = getMonthIndex(r.startDate);
+
+    if (closureIdx !== null && startIdxDirect !== null) {
+      startIdx = closureIdx;
+    } else if (closureIdx !== null) {
+      startIdx = closureIdx;
+    } else if (startIdxDirect !== null) {
+      startIdx = startIdxDirect;
+    } else if (r.createdAt) {
+      const createdIdx = getMonthIndex(r.createdAt);
+      if (createdIdx !== null) startIdx = createdIdx;
     }
-    if (r.targetCompletionDate) {
-      const d = new Date(r.targetCompletionDate);
-      if (!isNaN(d.getTime())) endIdx = d.getMonth();
+
+    // 2. Resolve target completion month index
+    const targetIdxDirect = getMonthIndex(r.targetCompletionDate);
+
+    if (targetIdxDirect !== null && targetIdxDirect >= startIdx) {
+      endIdx = targetIdxDirect;
     } else {
-      endIdx = Math.min(11, startIdx + 4);
+      // Check latest date among milestones and payment terms
+      let latestTrancheMonth: number | null = null;
+      (r.deliveryMilestones || []).forEach((m) => {
+        const mIdx = getMonthIndex(m.completionDate || m.targetDate || m.paymentReceivedDate);
+        if (mIdx !== null && (latestTrancheMonth === null || mIdx > latestTrancheMonth)) {
+          latestTrancheMonth = mIdx;
+        }
+      });
+      (r.paymentTerms || []).forEach((t) => {
+        const tIdx = getMonthIndex(t.paymentReceivedDate || t.dueDate);
+        if (tIdx !== null && (latestTrancheMonth === null || tIdx > latestTrancheMonth)) {
+          latestTrancheMonth = tIdx;
+        }
+      });
+
+      if (latestTrancheMonth !== null && latestTrancheMonth >= startIdx) {
+        endIdx = latestTrancheMonth;
+      } else {
+        // Standard multi-month engagement span
+        endIdx = Math.min(11, startIdx + (r.overallCompletionPercent === 100 ? 3 : 2));
+      }
     }
 
-    if (endIdx < startIdx) endIdx = startIdx;
+    if (endIdx < startIdx) {
+      endIdx = Math.min(11, startIdx + 2);
+    }
+
     return { startIdx, endIdx };
   };
 

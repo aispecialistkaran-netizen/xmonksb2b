@@ -460,10 +460,28 @@ export async function createDeliveryRecordFromLead(
     tenureType: tenureType,
     deliveryStatus: "not_started",
     overallCompletionPercent: 0,
-    startDate: new Date().toISOString().split("T")[0],
-    targetCompletionDate: lead.closureMonth
-      ? `${lead.closureMonth}-28`
-      : new Date(Date.now() + 180 * 86400000).toISOString().split("T")[0],
+    startDate: (() => {
+      if (lead.closureMonth) {
+        const clean = lead.closureMonth.split("T")[0].slice(0, 10);
+        if (/^\d{4}-\d{2}/.test(clean)) return clean.length === 7 ? `${clean}-01` : clean;
+      }
+      return new Date().toISOString().split("T")[0];
+    })(),
+    targetCompletionDate: (() => {
+      if (lead.closureMonth) {
+        const clean = lead.closureMonth.split("T")[0].slice(0, 10);
+        const match = clean.match(/^(\d{4})-(\d{2})/);
+        if (match) {
+          const y = parseInt(match[1], 10);
+          const m = parseInt(match[2], 10);
+          const endMonth = m + 3;
+          const endYear = y + Math.floor((endMonth - 1) / 12);
+          const normalizedMonth = ((endMonth - 1) % 12) + 1;
+          return `${endYear}-${String(normalizedMonth).padStart(2, "0")}-28`;
+        }
+      }
+      return new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
+    })(),
     notes: lead.notes || `Won closure deal transferred to delivery pipeline.`,
     deliveryMilestones:
       tenureType === "contract"
