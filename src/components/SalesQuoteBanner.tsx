@@ -133,31 +133,34 @@ export const SalesQuoteBanner: React.FC = () => {
       // Temporarily hide the quote bar dog during jump
       setIsQuoteDogHidden(true);
 
-      const flightDuration = 440;
+      // Smooth slow 4.5s cinematic jump arc
+      const flightDuration = 4500;
       const flightStart = performance.now();
 
       const animateFlight = (now: number) => {
         const elapsed = now - flightStart;
         const p = Math.min(1, elapsed / flightDuration);
-        const easedP = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p;
+
+        // Butter-smooth cosine ease-in-out curve
+        const easedP = 0.5 - 0.5 * Math.cos(p * Math.PI);
 
         const currX = startX + deltaX * easedP;
         const arc = -Math.sin(p * Math.PI) * arcHeight;
         const currY = startY + deltaY * p + arc;
 
-        // Rotation tilt during leap
-        const rot =
-          facing === 1
-            ? p < 0.35
-              ? -18
-              : p < 0.7
-              ? -3
-              : 20
-            : p < 0.35
-            ? 18
-            : p < 0.7
-            ? 3
-            : -20;
+        // Continuous smooth rotation tilt during the 4-5s leap
+        let rot: number;
+        if (p < 0.4) {
+          // Tilting upwards into the high leap (-22deg -> 0deg)
+          rot = -22 * (1 - p / 0.4);
+        } else if (p < 0.7) {
+          // Soaring through mid-flight apex (-2deg -> +6deg)
+          rot = -2 + 8 * ((p - 0.4) / 0.3);
+        } else {
+          // Graceful dive downward onto the tab (+6deg -> +24deg)
+          rot = 6 + 18 * ((p - 0.7) / 0.3);
+        }
+        if (facing !== 1) rot = -rot;
 
         setLeapState({
           active: true,
@@ -192,33 +195,30 @@ export const SalesQuoteBanner: React.FC = () => {
             console.warn("Error invoking onLand:", err);
           }
 
-          // Wag paws happily on tab for 240ms, then leap back to quote bar
+          // Wag paws happily on tab for 700ms, then smoothly leap back to quote bar
           pauseTimerId = setTimeout(() => {
-            const returnDuration = 380;
+            const returnDuration = 3200;
             const returnStart = performance.now();
             const returnFacing = facing === 1 ? -1 : 1; // Turn around to face quote bar
 
             const animateReturn = (retNow: number) => {
               const retElapsed = retNow - returnStart;
               const retP = Math.min(1, retElapsed / returnDuration);
-              const retEasedP = retP < 0.5 ? 2 * retP * retP : -1 + (4 - 2 * retP) * retP;
+              const retEasedP = 0.5 - 0.5 * Math.cos(retP * Math.PI);
 
               const rX = targetX + (startX - targetX) * retEasedP;
               const rArc = -Math.sin(retP * Math.PI) * (arcHeight * 0.75);
               const rY = targetY + (startY - targetY) * retP + rArc;
 
-              const rRot =
-                returnFacing === -1
-                  ? retP < 0.35
-                    ? 16
-                    : retP < 0.7
-                    ? 2
-                    : -12
-                  : retP < 0.35
-                  ? -16
-                  : retP < 0.7
-                  ? -2
-                  : 12;
+              let rRot: number;
+              if (retP < 0.4) {
+                rRot = 18 * (1 - retP / 0.4);
+              } else if (retP < 0.7) {
+                rRot = 2 - 8 * ((retP - 0.4) / 0.3);
+              } else {
+                rRot = -6 - 12 * ((retP - 0.7) / 0.3);
+              }
+              if (returnFacing !== -1) rRot = -rRot;
 
               setLeapState({
                 active: true,
@@ -240,7 +240,7 @@ export const SalesQuoteBanner: React.FC = () => {
             };
 
             animFrameId = requestAnimationFrame(animateReturn);
-          }, 240);
+          }, 700);
         }
       };
 

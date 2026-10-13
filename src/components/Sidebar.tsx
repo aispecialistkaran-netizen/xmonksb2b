@@ -140,8 +140,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
       };
 
-      // Guaranteed safety fallback so switching is never missed
-      const fallbackTimer = setTimeout(finishSwitch, 800);
+      // Guaranteed safety fallback so switching is never missed (7s safety margin for 4.5s slow jump)
+      const fallbackTimer = setTimeout(finishSwitch, 7000);
 
       window.dispatchEvent(
         new CustomEvent("dog-jump-to-tab", {
