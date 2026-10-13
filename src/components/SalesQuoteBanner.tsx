@@ -31,6 +31,52 @@ interface LeapState {
   showPaw: boolean;
 }
 
+// Scenic Background Tree Components for the Continuous Running Path
+const PineTree: React.FC<{ className?: string }> = ({ className = "" }) => (
+  <svg className={`h-6 w-auto ${className}`} viewBox="0 0 24 32" fill="none">
+    <rect x="10.5" y="24" width="3" height="7" rx="1" className="fill-amber-900/80 dark:fill-amber-950" />
+    <polygon points="12,2 4,12 8,12 3,19 9,19 5,25 19,25 15,19 21,19 16,12 20,12" className="fill-emerald-600 dark:fill-emerald-700/70" />
+    <polygon points="12,2 4,12 12,12 7,19 12,19 8,25 12,25" className="fill-emerald-500 dark:fill-emerald-600/70 opacity-90" />
+  </svg>
+);
+
+const RoundOakTree: React.FC<{ className?: string }> = ({ className = "" }) => (
+  <svg className={`h-6 w-auto ${className}`} viewBox="0 0 28 32" fill="none">
+    <rect x="12" y="22" width="4" height="9" rx="1.5" className="fill-amber-900/80 dark:fill-amber-950" />
+    <circle cx="14" cy="13" r="10" className="fill-emerald-500 dark:fill-emerald-600/70" />
+    <circle cx="9" cy="16" r="7" className="fill-green-600 dark:fill-emerald-800/70" />
+    <circle cx="19" cy="16" r="7" className="fill-teal-600 dark:fill-teal-700/70" />
+    <circle cx="14" cy="9" r="6" className="fill-emerald-400 dark:fill-emerald-500/70 opacity-80" />
+  </svg>
+);
+
+const SlenderCypress: React.FC<{ className?: string }> = ({ className = "" }) => (
+  <svg className={`h-6 w-auto ${className}`} viewBox="0 0 18 32" fill="none">
+    <rect x="7.5" y="24" width="3" height="7" rx="1" className="fill-amber-900/80 dark:fill-amber-950" />
+    <path d="M9 3 C5 10 4 24 9 24 C14 24 13 10 9 3 Z" className="fill-teal-600 dark:fill-teal-700/70" />
+    <path d="M9 3 C5 10 6 24 9 24 Z" className="fill-teal-500 dark:fill-teal-600/70 opacity-80" />
+  </svg>
+);
+
+const AutumnMapleTree: React.FC<{ className?: string }> = ({ className = "" }) => (
+  <svg className={`h-6 w-auto ${className}`} viewBox="0 0 26 32" fill="none">
+    <rect x="11.5" y="22" width="3" height="9" rx="1" className="fill-amber-950" />
+    <circle cx="13" cy="13" r="9" className="fill-amber-500 dark:fill-amber-600/70" />
+    <circle cx="8" cy="15" r="6" className="fill-orange-500 dark:fill-orange-600/70" />
+    <circle cx="17" cy="15" r="6" className="fill-yellow-500 dark:fill-yellow-600/70 opacity-90" />
+    <circle cx="13" cy="9" r="5" className="fill-amber-400 dark:fill-amber-500/70 opacity-90" />
+  </svg>
+);
+
+const FloweringBush: React.FC<{ className?: string }> = ({ className = "" }) => (
+  <svg className={`h-4 w-auto ${className}`} viewBox="0 0 20 18" fill="none">
+    <path d="M3 16 C1 13 2 9 6 8 C7 5 11 5 13 7 C17 6 19 11 18 16 Z" className="fill-emerald-600 dark:fill-emerald-700/70" />
+    <circle cx="7" cy="11" r="1.2" className="fill-amber-300 dark:fill-amber-400" />
+    <circle cx="13" cy="10" r="1.2" className="fill-rose-300 dark:fill-rose-400" />
+    <circle cx="10" cy="13" r="1" className="fill-white/90" />
+  </svg>
+);
+
 export const SalesQuoteBanner: React.FC = () => {
   const [quoteData, setQuoteData] = useState<QuoteData>(DEFAULT_QUOTE);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -373,12 +419,53 @@ export const SalesQuoteBanner: React.FC = () => {
             transform: scaleX(-1);
           }
         }
+        @keyframes treeSway {
+          0%, 100% {
+            transform: rotate(0deg);
+          }
+          50% {
+            transform: rotate(2deg);
+          }
+        }
+        .tree-sway-1 {
+          animation: treeSway 4.5s ease-in-out infinite;
+          transform-origin: bottom center;
+        }
+        .tree-sway-2 {
+          animation: treeSway 5.5s ease-in-out infinite 1.2s;
+          transform-origin: bottom center;
+        }
+        .tree-sway-3 {
+          animation: treeSway 4s ease-in-out infinite 2.5s;
+          transform-origin: bottom center;
+        }
+        .tree-sway-4 {
+          animation: treeSway 6s ease-in-out infinite 0.7s;
+          transform-origin: bottom center;
+        }
       `}</style>
 
       <div
         className="relative hidden md:flex items-center space-x-2.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl shadow-2xs max-w-2xl xl:max-w-4xl transition-all hover:border-amber-300 dark:hover:border-amber-700 group flex-1 mt-1"
         title={`"${quoteData.quote}" — Click copy icon or refresh for a new one`}
       >
+        {/* Scenic Background Trees Layer along the continuous dog running path (behind running dog) */}
+        <div className="absolute -top-[23px] left-3 right-3 h-6 pointer-events-none overflow-hidden z-10 flex items-end justify-between select-none opacity-85 dark:opacity-75">
+          <PineTree className="tree-sway-1" />
+          <FloweringBush className="tree-sway-3 hidden sm:block" />
+          <RoundOakTree className="tree-sway-2" />
+          <SlenderCypress className="tree-sway-4 hidden md:block" />
+          <AutumnMapleTree className="tree-sway-1" />
+          <FloweringBush className="tree-sway-2" />
+          <RoundOakTree className="tree-sway-3" />
+          <PineTree className="tree-sway-4 hidden sm:block" />
+          <SlenderCypress className="tree-sway-1" />
+          <FloweringBush className="tree-sway-3 hidden lg:block" />
+          <AutumnMapleTree className="tree-sway-2 hidden xl:block" />
+          <RoundOakTree className="tree-sway-4" />
+          <PineTree className="tree-sway-2" />
+        </div>
+
         {/* Cute Running Doggie above the quote bar with comfortable headroom */}
         <div className="absolute -top-[23px] left-2 right-2 h-6 pointer-events-none overflow-visible z-20">
           <div
