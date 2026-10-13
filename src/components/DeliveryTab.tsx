@@ -2899,7 +2899,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <th className="py-2.5 px-3">Timeframe / Schedule</th>
                         <th className="py-2.5 px-3">Payment (%)</th>
                         <th className="py-2.5 px-3">Amount (INR)</th>
-                        <th className="py-2.5 px-3">Due Date</th>
+                        <th className="py-2.5 px-3">Payment Received</th>
                         <th className="py-2.5 px-3">Payment Status</th>
                         <th className="py-2.5 px-3 text-right">Actions</th>
                       </tr>
@@ -2967,11 +2967,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                           <td className="py-3 px-3">
                             <input
                               type="date"
-                              value={t.dueDate || ""}
-                              onChange={(e) =>
-                                handleUpdatePaymentTerm(t.id, { dueDate: e.target.value })
-                              }
+                              value={t.paymentReceivedDate || t.dueDate || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                handleUpdatePaymentTerm(t.id, {
+                                  paymentReceivedDate: val,
+                                  dueDate: val,
+                                });
+                              }}
                               className="px-2 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300"
+                              title="Payment Received Date"
                             />
                           </td>
 
