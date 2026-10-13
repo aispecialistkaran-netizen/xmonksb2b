@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-// Curated high-converting, witty & motivational B2B sales/outreach quotes
-const CURATED_SALES_QUOTES = [
+// Fallback curated quotes if third-party public API is temporarily unreachable
+const FALLBACK_QUOTES = [
   {
     quote: "May your coffee be strong and your pipeline follow-ups be warm today ☕",
     tag: "Morning Fuel",
@@ -11,137 +11,189 @@ const CURATED_SALES_QUOTES = [
     tag: "Pipeline Truth",
   },
   {
+    quote: "Behind every signed contract was a rep who followed up one more time 💼",
+    tag: "Motivation",
+  },
+  {
     quote: "Prospects may ghost, but your tenacity will haunt their inbox 👻",
-    tag: "Outreach Grit",
-  },
-  {
-    quote: "Behind every signed enterprise contract was a rep who followed up one more time 💼",
-    tag: "Closer's Mindset",
-  },
-  {
-    quote: "May your objections be few and your decision-makers actually on the call 📞",
-    tag: "Sales Prayers",
+    tag: "Sales Humor",
   },
   {
     quote: "Coffee is for closers, but cold outreach is for champions 🏆",
     tag: "Closer's Coffee",
   },
   {
-    quote: "A clean pipeline and a 15-minute scheduled demo cures all monday blues ✨",
-    tag: "Rep Therapy",
+    quote: "Success is dependent upon the glands — sweat glands 💦",
+    tag: "Zig Ziglar",
+  },
+  {
+    quote: "The secret of getting ahead is getting started 🚀",
+    tag: "Mark Twain",
   },
   {
     quote: "Your prospect didn't reject you; their inbox just wasn't ready for your brilliance 💡",
-    tag: "Inbox Wisdom",
+    tag: "Sales Humor",
   },
   {
-    quote: "Outreach is like fishing: patience, the right hook, and never leaving the water early 🎣",
-    tag: "Sales Philosophy",
+    quote: "Don't watch the clock; do what it does. Keep going ⏰",
+    tag: "Sam Levenson",
   },
   {
-    quote: "Drink the coffee, personalize the first line, and let's go hunt some enterprise logos 🚀",
-    tag: "Deal Hunter",
-  },
-  {
-    quote: "Remember: The best time to follow up was yesterday. The second best time is right now ⏰",
-    tag: "Action Rule",
-  },
-  {
-    quote: "Keep calm and check your sent folder for 'Contract Signed' 🎉",
-    tag: "Closing Vibe",
-  },
-  {
-    quote: "Sales is 10% product, 10% timing, and 80% relentless friendly persistence 🤝",
-    tag: "Sales Reality",
-  },
-  {
-    quote: "May your decision-makers have budget, urgency, and calendar availability today 🗓️",
-    tag: "B2B Dream",
-  },
-  {
-    quote: "The CRM never sleeps, and neither does our pursuit of quota smashing 📈",
-    tag: "Quota Crusher",
+    quote: "May your objections be few and your decision-makers actually on the call 📞",
+    tag: "Sales Humor",
   },
 ];
 
-const CANDIDATE_MODELS = [
-  "gemini-3.5-flash-lite",
-  "gemini-3.8-flash",
-  "gemini-3.5-flash",
-  "gemini-3.7-flash",
-  "gemini-flash-latest",
-];
+interface QuoteResult {
+  quote: string;
+  tag: string;
+  source: string;
+}
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const force = searchParams.get("force") === "true";
+// 1. Fetch from DummyJSON Quotes (Free Public API - Motivational)
+async function fetchDummyJsonQuote(): Promise<QuoteResult | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-  const apiKey =
-    process.env.gemini_api_key ||
-    process.env.GEMINI_API_KEY ||
-    "";
+  try {
+    const res = await fetch("https://dummyjson.com/quotes/random", {
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+    clearTimeout(timeoutId);
 
-  // Try generating via Gemini if key is present
-  if (apiKey) {
-    const prompt = `You are an elite, witty B2B corporate sales copywriter.
-Generate a single witty, humorous, yet genuinely motivating B2B sales and outreach one-liner quote (strictly under 18 words) for a sales rep doing cold outreach, closing deals, and managing pipelines.
-Incorporate fun sales themes like coffee, warm leads, gatekeepers, follow-up persistence, decision makers, and quota crushing. Include an emoji at the end.
-Respond ONLY with a valid JSON object matching:
-{
-  "quote": "your short witty quote here",
-  "tag": "e.g. Closer's Coffee, Outreach Grit, Pipeline Truth, Deal Energy"
-}`;
-
-    for (const model of CANDIDATE_MODELS) {
-      try {
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4500);
-
-        const res = await fetch(apiUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.9,
-              responseMimeType: "application/json",
-            },
-          }),
-        });
-
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
-          const raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (raw) {
-            const parsed = JSON.parse(raw.trim());
-            if (parsed.quote) {
-              return NextResponse.json({
-                quote: parsed.quote,
-                tag: parsed.tag || "Sales Wisdom",
-                source: "ai",
-                timestamp: new Date().toISOString(),
-              });
-            }
-          }
-        }
-      } catch (e) {
-        // Fallback to next model or curated
+    if (res.ok) {
+      const data = await res.json();
+      if (data.quote) {
+        return {
+          quote: data.quote,
+          tag: data.author ? `${data.author}` : "Motivation",
+          source: "dummyjson",
+        };
       }
+    }
+  } catch {
+    clearTimeout(timeoutId);
+  }
+  return null;
+}
+
+// 2. Fetch from ZenQuotes (Free Public API - Inspirational)
+async function fetchZenQuote(): Promise<QuoteResult | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+  try {
+    const res = await fetch("https://zenquotes.io/api/random", {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data[0]?.q) {
+        return {
+          quote: data[0].q,
+          tag: data[0].a ? `${data[0].a}` : "Inspiration",
+          source: "zenquotes",
+        };
+      }
+    }
+  } catch {
+    clearTimeout(timeoutId);
+  }
+  return null;
+}
+
+// 3. Fetch from ICanHazDadJoke (Free Public API - Funny / Humor)
+async function fetchFunnyDadJoke(): Promise<QuoteResult | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+  try {
+    const res = await fetch("https://icanhazdadjoke.com/", {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "xMonksB2BApp/1.0",
+      },
+      cache: "no-store",
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.joke) {
+        return {
+          quote: data.joke,
+          tag: "Daily Humor 😄",
+          source: "icanhazdadjoke",
+        };
+      }
+    }
+  } catch {
+    clearTimeout(timeoutId);
+  }
+  return null;
+}
+
+// 4. Fetch from Official Joke API (Free Public API - Funny / Laughs)
+async function fetchOfficialJoke(): Promise<QuoteResult | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+  try {
+    const res = await fetch("https://official-joke-api.appspot.com/random_joke", {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.setup && data.punchline) {
+        return {
+          quote: `${data.setup} — ${data.punchline}`,
+          tag: "Sales Laugh 😂",
+          source: "official-joke-api",
+        };
+      }
+    }
+  } catch {
+    clearTimeout(timeoutId);
+  }
+  return null;
+}
+
+export async function GET() {
+  // Alternate between funny and motivational online APIs (50% funny, 50% motivational)
+  const isHumor = Math.random() > 0.5;
+
+  const primaryFetchers = isHumor
+    ? [fetchFunnyDadJoke, fetchOfficialJoke, fetchDummyJsonQuote, fetchZenQuote]
+    : [fetchDummyJsonQuote, fetchZenQuote, fetchFunnyDadJoke, fetchOfficialJoke];
+
+  // Try the free public online APIs in order
+  for (const fetcher of primaryFetchers) {
+    const result = await fetcher();
+    if (result && result.quote) {
+      return NextResponse.json({
+        quote: result.quote,
+        tag: result.tag,
+        source: result.source,
+        timestamp: new Date().toISOString(),
+      });
     }
   }
 
-  // Fallback to curated quotes
-  const randomIndex = Math.floor(Math.random() * CURATED_SALES_QUOTES.length);
-  const selected = CURATED_SALES_QUOTES[randomIndex];
-
+  // Fallback to curated quote catalog if network offline
+  const randomFallback = FALLBACK_QUOTES[Math.floor(Math.random() * FALLBACK_QUOTES.length)];
   return NextResponse.json({
-    quote: selected.quote,
-    tag: selected.tag,
-    source: "curated",
+    quote: randomFallback.quote,
+    tag: randomFallback.tag,
+    source: "local-fallback",
     timestamp: new Date().toISOString(),
   });
 }

@@ -126,7 +126,7 @@ export const SalesQuoteBanner: React.FC = () => {
           onClick={() => fetchNewQuote(true)}
           disabled={isLoading}
           className="flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/70 hover:bg-amber-200/80 dark:bg-amber-900/40 dark:hover:bg-amber-900/70 border border-amber-200/80 dark:border-amber-800/80 transition cursor-pointer disabled:opacity-50 active:scale-95 shadow-2xs"
-          title="Generate / get another sales motivational quote"
+          title="Get another motivational or funny quote"
         >
           <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin text-amber-600 dark:text-amber-400" : ""}`} />
           <span className="hidden lg:inline">{isLoading ? "Rolling..." : "Get new one"}</span>
