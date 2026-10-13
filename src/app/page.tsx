@@ -1486,9 +1486,9 @@ export default function Home() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
-        <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-9 pb-6">
           {/* Top Header Status & Notification Center Strip */}
-          <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200 dark:border-slate-800 gap-3">
+          <div className="flex items-center justify-between pt-2 pb-4 mb-4 border-b border-slate-200 dark:border-slate-800 gap-3">
             <div className="flex items-center space-x-2 shrink-0">
               <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 Logged in as <span className="font-bold text-slate-900 dark:text-white">{currentUser?.name || "User"}</span>

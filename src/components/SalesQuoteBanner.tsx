@@ -126,11 +126,11 @@ export const SalesQuoteBanner: React.FC = () => {
             transform: scaleX(-1);
           }
           48% {
-            left: calc(100% - 58px);
+            left: calc(100% - 50px);
             transform: scaleX(-1);
           }
           50% {
-            left: calc(100% - 58px);
+            left: calc(100% - 50px);
             transform: scaleX(1);
           }
           98% {
@@ -145,20 +145,20 @@ export const SalesQuoteBanner: React.FC = () => {
       `}</style>
 
       <div
-        className="relative hidden md:flex items-center space-x-2.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl shadow-2xs max-w-2xl xl:max-w-4xl transition-all hover:border-amber-300 dark:hover:border-amber-700 group flex-1"
+        className="relative hidden md:flex items-center space-x-2.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl shadow-2xs max-w-2xl xl:max-w-4xl transition-all hover:border-amber-300 dark:hover:border-amber-700 group flex-1 mt-1"
         title={`"${quoteData.quote}" — Click copy icon or refresh for a new one`}
       >
-        {/* Cute Running Doggie above the quote bar */}
-        <div className="absolute -top-7 left-2 right-2 h-7 pointer-events-none overflow-visible z-20">
+        {/* Cute Running Doggie above the quote bar with comfortable headroom */}
+        <div className="absolute -top-[23px] left-2 right-2 h-6 pointer-events-none overflow-visible z-20">
           <div
-            className="absolute top-0 w-14 h-7"
+            className="absolute top-0 w-12 h-6"
             style={{
               animation: "dogTrotPatrol 10s ease-in-out infinite",
             }}
           >
             <div
               ref={dogContainerRef}
-              className="w-full h-full [&_svg]:w-full [&_svg]:h-full drop-shadow-sm"
+              className="w-full h-full [&_svg]:w-full [&_svg]:h-full drop-shadow-xs"
             />
           </div>
         </div>
