@@ -1,6 +1,7 @@
 export type TemplateCategory =
   | "all"
   | "financial_proposals"
+  | "product_induction_materials"
   | "commercial_contracts"
   | "executive_coaching"
   | "ld_transformation"
@@ -25,6 +26,14 @@ export const TEMPLATE_CATEGORIES: TemplateCategoryConfig[] = [
     badgeText: "text-emerald-700 dark:text-emerald-300",
     borderColor: "border-emerald-300 dark:border-emerald-800",
     icon: "Receipt",
+  },
+  {
+    id: "product_induction_materials",
+    label: "Product & Induction Materials",
+    badgeBg: "bg-blue-50 dark:bg-blue-950/70",
+    badgeText: "text-blue-700 dark:text-blue-300",
+    borderColor: "border-blue-300 dark:border-blue-800",
+    icon: "BookOpen",
   },
   {
     id: "commercial_contracts",
