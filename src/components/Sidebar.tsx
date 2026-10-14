@@ -44,6 +44,7 @@ export type NavTab =
   | "analytics"
   | "email"
   | "library"
+  | "templates"
   | "prospector"
   | "delivery"
   | "billing"
@@ -234,6 +235,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: FolderOpen,
       color: "text-indigo-600 dark:text-indigo-400",
       activeBg: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
+      hidden: isDeliveryOnly,
+    },
+    {
+      id: "templates",
+      label: "Templates",
+      icon: FileSpreadsheet,
+      color: "text-emerald-600 dark:text-emerald-400",
+      activeBg: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+      badge: "Hub",
       hidden: isDeliveryOnly,
     },
     {

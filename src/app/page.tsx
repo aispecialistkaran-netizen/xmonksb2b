@@ -48,6 +48,7 @@ import { SpringPortalLoader } from "@/components/spring";
 import { MoneyLottieLoader } from "@/components/MoneyLottieLoader";
 import { ProspectorTab } from "@/components/ProspectorTab";
 import { LibraryTab } from "@/components/LibraryTab";
+import { TemplatesTab } from "@/components/TemplatesTab";
 import { ThursdayPresentationModal } from "@/components/presentation/ThursdayPresentationModal";
 import { SalesQuoteBanner } from "@/components/SalesQuoteBanner";
 import { EmailAttachment } from "@/constants/emailTemplates";
@@ -148,6 +149,10 @@ const TAB_METADATA: Record<NavTab, { title: string; subtitle: string }> = {
   library: {
     title: "Digital Collateral & Library",
     subtitle: "Case studies, pitch decks and sales enablement assets",
+  },
+  templates: {
+    title: "Corporate Templates & Proposals Hub",
+    subtitle: "Standardized enterprise financial proposals, contracts and documents",
   },
   developer: {
     title: "Developer System Console",
@@ -2350,6 +2355,13 @@ export default function Home() {
               setEmailTabBulkPrefill(null);
               handleTabChange("email");
             }}
+          />
+        )}
+
+        {!isRestrictedToDelivery && activeTab === "templates" && (
+          <TemplatesTab
+            currentUser={currentUser}
+            isAdmin={isAdmin}
           />
         )}
 
