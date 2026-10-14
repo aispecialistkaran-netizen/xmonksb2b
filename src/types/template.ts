@@ -2,6 +2,7 @@ export type TemplateCategory =
   | "all"
   | "financial_proposals"
   | "product_induction_materials"
+  | "case_studies"
   | "commercial_contracts"
   | "executive_coaching"
   | "ld_transformation"
@@ -34,6 +35,14 @@ export const TEMPLATE_CATEGORIES: TemplateCategoryConfig[] = [
     badgeText: "text-blue-700 dark:text-blue-300",
     borderColor: "border-blue-300 dark:border-blue-800",
     icon: "BookOpen",
+  },
+  {
+    id: "case_studies",
+    label: "Case Studies",
+    badgeBg: "bg-amber-50 dark:bg-amber-950/70",
+    badgeText: "text-amber-700 dark:text-amber-300",
+    borderColor: "border-amber-300 dark:border-amber-800",
+    icon: "Briefcase",
   },
   {
     id: "commercial_contracts",

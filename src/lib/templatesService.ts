@@ -12,7 +12,7 @@ import { TemplateItem, TemplateCategory, TEMPLATE_CATEGORIES } from "@/types/tem
 import { formatBytes } from "./formatters";
 
 const TEMPLATES_COLLECTION = "b2b_templates";
-const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v3";
+const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v4";
 const DEPRECATED_TEMPLATE_IDS = new Set(["tpl-icici-fin-prop-02", "tpl-icici-zsm-prop-03"]);
 
 export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
@@ -123,118 +123,7 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     version: "2025",
   },
 
-  // --- 2. Corporate Induction Case Studies ---
-  {
-    id: "tpl-case-turnaround-food-packaging",
-    title: "Case Study – Operational Turnaround & Revenue Recovery (XYZ Food Packaging)",
-    fileName: "Case Study - Declining Revenue & Operational Turnaround (Food Packaging).pdf",
-    fileSize: "107.4 KB",
-    fileSizeBytes: 109939,
-    fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
-    description:
-      "Executive dilemma & diagnosis case study analyzing operational disruptions, cost-push variables, and management interventions to reverse a 4-quarter revenue decline.",
-    downloadUrl:
-      "/templates/Case%20Study%20-%20Declining%20Revenue%20&%20Operational%20Turnaround%20(Food%20Packaging).pdf",
-    uploadedBy: "Admin",
-    uploadedByEmail: "sales@xmonks.com",
-    uploadedAt: "2026-10-14T16:21:00.000Z",
-    uploadedAtMs: 1791985260000,
-    tags: ["Case Study", "Operational Turnaround", "Diagnosis", "Simulation", "Executive Training"],
-    isPinned: false,
-    downloadCount: 14,
-    version: "v1.0",
-  },
-  {
-    id: "tpl-case-dilemma-performing-leader",
-    title: "Case Study – Dilemma of a Performing Leader",
-    fileName: "Case Study - Dilemma of a Performing Leader.pdf",
-    fileSize: "603.7 KB",
-    fileSizeBytes: 618202,
-    fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
-    description:
-      "Transformational case study exploring the tension between personal high-performance output vs. organizational team leadership, delegation, and coaching enablement.",
-    downloadUrl: "/templates/Case%20Study%20-%20Dilemma%20of%20a%20Performing%20Leader.pdf",
-    uploadedBy: "Admin",
-    uploadedByEmail: "sales@xmonks.com",
-    uploadedAt: "2026-10-14T16:21:00.000Z",
-    uploadedAtMs: 1791985260001,
-    tags: ["Case Study", "High Performers", "Leadership Transition", "Coaching Culture", "xMonks Case Library"],
-    isPinned: false,
-    downloadCount: 16,
-    version: "v1.0",
-  },
-  {
-    id: "tpl-case-tata-steel-frontline",
-    title: "Case Study – Frontline Employee Engagement (Tata Steel)",
-    fileName: "Case Study - Employee Engagement for Frontline Leaders (Tata Steel).pdf",
-    fileSize: "1.0 MB",
-    fileSizeBytes: 1074347,
-    fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
-    description:
-      "Enterprise engagement case study detailing coaching & OD interventions implemented across manufacturing plants for India's multinational steel producer.",
-    downloadUrl:
-      "/templates/Case%20Study%20-%20Employee%20Engagement%20for%20Frontline%20Leaders%20(Tata%20Steel).pdf",
-    uploadedBy: "Admin",
-    uploadedByEmail: "sales@xmonks.com",
-    uploadedAt: "2026-10-14T16:21:00.000Z",
-    uploadedAtMs: 1791985260002,
-    tags: ["Case Study", "Tata Steel", "Frontline Leaders", "Industrial Manufacturing", "Employee Engagement"],
-    isPinned: false,
-    downloadCount: 22,
-    version: "v1.0",
-  },
-  {
-    id: "tpl-case-private-general-insurance",
-    title: "Case Study – Sales Culture Transformation (Leading Private General Insurance)",
-    fileName: "Case Study - Sales Culture & Frontline Leadership (Private General Insurance).pdf",
-    fileSize: "2.3 MB",
-    fileSizeBytes: 2356132,
-    fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
-    description:
-      "Large-scale commercial transformation case study across nationwide insurance branch networks, shifting frontline teams from commodity selling to consultative problem solving.",
-    downloadUrl:
-      "/templates/Case%20Study%20-%20Sales%20Culture%20&%20Frontline%20Leadership%20(Private%20General%20Insurance).pdf",
-    uploadedBy: "Admin",
-    uploadedByEmail: "sales@xmonks.com",
-    uploadedAt: "2026-10-14T16:21:00.000Z",
-    uploadedAtMs: 1791985260003,
-    tags: ["Case Study", "General Insurance", "Sales Transformation", "BFSI", "Leadership Coaching"],
-    isPinned: false,
-    downloadCount: 20,
-    version: "v1.0",
-  },
-  {
-    id: "tpl-case-general-insurance-retention",
-    title: "Case Study – Transformational Coaching & Retention (General Insurance)",
-    fileName: "Case Study - Transformational Coaching & Retention (General Insurance).pdf",
-    fileSize: "2.4 MB",
-    fileSizeBytes: 2422007,
-    fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
-    description:
-      "Detailed engagement analysis across 122+ branches illustrating retention uplift, manager-as-coach impact, and measurable talent development ROI.",
-    downloadUrl:
-      "/templates/Case%20Study%20-%20Transformational%20Coaching%20&%20Retention%20(General%20Insurance).pdf",
-    uploadedBy: "Admin",
-    uploadedByEmail: "sales@xmonks.com",
-    uploadedAt: "2026-10-14T16:21:00.000Z",
-    uploadedAtMs: 1791985260004,
-    tags: ["Case Study", "Talent Retention", "Branch Banking", "Insurance", "Executive Coaching"],
-    isPinned: false,
-    downloadCount: 15,
-    version: "v1.0",
-  },
-
-  // --- 3. Approach Notes & Induction Frameworks ---
+  // --- 2. Approach Notes & Induction Frameworks ---
   {
     id: "tpl-app-sales-mastery-banking",
     title: "Approach Note – Sales Mastery for Trusted Banking Relationships",
@@ -347,7 +236,120 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
   },
 ];
 
-// Initial seed templates containing the requested financial proposal and all product induction materials
+export const CASE_STUDIES_TEMPLATES: TemplateItem[] = [
+  {
+    id: "tpl-case-turnaround-food-packaging",
+    title: "Case Study: Food Packaging Company – Maximizing Profits Amid Disruptions",
+    fileName: "Case Study - Food Packaging Company (Maximizing Profits Amid Disruptions).pdf",
+    fileSize: "107.4 KB",
+    fileSizeBytes: 109939,
+    fileType: "pdf",
+    category: "case_studies",
+    categoryLabel: "Case Studies",
+    description:
+      "Operational turnaround case study for Executive Management Group: analyzing declining revenue, shrinking margins, customer pushbacks, employee sickness disruptions, and SNOP forecasting strategies.",
+    downloadUrl:
+      "/templates/Case%20Study%20-%20Food%20Packaging%20Company%20(Maximizing%20Profits%20Amid%20Disruptions).pdf",
+    uploadedBy: "Admin",
+    uploadedByEmail: "sales@xmonks.com",
+    uploadedAt: "2026-10-14T16:24:00.000Z",
+    uploadedAtMs: 1791985440000,
+    tags: ["Case Study", "Food Packaging", "Operations", "Revenue Recovery", "SNOP", "Turnaround"],
+    isPinned: true,
+    downloadCount: 16,
+    version: "v1.0",
+  },
+  {
+    id: "tpl-case-dilemma-performing-leader",
+    title: "Case Study: Perfetti Van Melle & xMonks – Dilemma of a Performing Leader",
+    fileName: "Case Study - Dilemma of a Performing Leader (Perfetti Van Melle).pdf",
+    fileSize: "603.7 KB",
+    fileSizeBytes: 618202,
+    fileType: "pdf",
+    category: "case_studies",
+    categoryLabel: "Case Studies",
+    description:
+      "Consumer durables leadership dilemma: Ishaan (Regional Head) and Virat (top performer). Examines power centre dynamics, team disengagement, inter-associate friction, and coaching advisory interventions.",
+    downloadUrl:
+      "/templates/Case%20Study%20-%20Dilemma%20of%20a%20Performing%20Leader%20(Perfetti%20Van%20Melle).pdf",
+    uploadedBy: "Admin",
+    uploadedByEmail: "sales@xmonks.com",
+    uploadedAt: "2026-10-14T16:24:00.000Z",
+    uploadedAtMs: 1791985440001,
+    tags: ["Case Study", "Perfetti Van Melle", "Erickson", "Performing Leader", "Power Dynamics", "Advisory"],
+    isPinned: true,
+    downloadCount: 22,
+    version: "v1.0",
+  },
+  {
+    id: "tpl-case-tata-steel-frontline",
+    title: "Case Study: Tata Steel – Coaching for Strengthening Employee Engagement",
+    fileName: "Case Study - Strengthening Employee Engagement (Tata Steel).pdf",
+    fileSize: "1.0 MB",
+    fileSizeBytes: 1074347,
+    fileType: "pdf",
+    category: "case_studies",
+    categoryLabel: "Case Studies",
+    description:
+      "Enterprise coaching transformation at India's steel giant (35M tonnes capacity). Rolling out 'The Art & Science of Coaching' to 51 top leaders and 'Leader as Coach' to 600+ AGM/GM/DGM level executives.",
+    downloadUrl:
+      "/templates/Case%20Study%20-%20Strengthening%20Employee%20Engagement%20(Tata%20Steel).pdf",
+    uploadedBy: "Admin",
+    uploadedByEmail: "sales@xmonks.com",
+    uploadedAt: "2026-10-14T16:24:00.000Z",
+    uploadedAtMs: 1791985440002,
+    tags: ["Case Study", "Tata Steel", "Employee Engagement", "Leader as Coach", "Manufacturing", "Frontline Leaders"],
+    isPinned: true,
+    downloadCount: 35,
+    version: "v1.0",
+  },
+  {
+    id: "tpl-case-private-general-insurance",
+    title: "Case Study: Leading Private General Insurance – Fostering Coaching Culture (305 Branches)",
+    fileName: "Case Study - Fostering Coaching Culture (Private General Insurance - 305 Branches).pdf",
+    fileSize: "2.3 MB",
+    fileSizeBytes: 2356132,
+    fileType: "pdf",
+    category: "case_studies",
+    categoryLabel: "Case Studies",
+    description:
+      "Nationwide insurer transformation (305 branches, 12,865 employees, ₹217.7B GWP). Multi-tiered 'Leader as Coach' program (2+1 format) with weekly nudges for 60+ Management Committee and Band I/II leaders.",
+    downloadUrl:
+      "/templates/Case%20Study%20-%20Fostering%20Coaching%20Culture%20(Private%20General%20Insurance%20-%20305%20Branches).pdf",
+    uploadedBy: "Admin",
+    uploadedByEmail: "sales@xmonks.com",
+    uploadedAt: "2026-10-14T16:24:00.000Z",
+    uploadedAtMs: 1791985440003,
+    tags: ["Case Study", "General Insurance", "305 Branches", "BFSI", "Coaching Culture", "Management Committee"],
+    isPinned: true,
+    downloadCount: 29,
+    version: "v1.0",
+  },
+  {
+    id: "tpl-case-general-insurance-retention",
+    title: "Case Study: Leading General Insurance Company (Mumbai) – Fostering Coaching Culture (122 Branches)",
+    fileName: "Case Study - Fostering Coaching Culture (Leading General Insurance - 122 Branches).pdf",
+    fileSize: "2.4 MB",
+    fileSizeBytes: 2422007,
+    fileType: "pdf",
+    category: "case_studies",
+    categoryLabel: "Case Studies",
+    description:
+      "Mumbai-headquartered general insurer with 122 branches & 9 countries. 'Art and Science of Coaching Essentials' by Erickson Coaching: 60h training, 10h mentoring, and oral assessments for 28 ICF Certified ACC Coaches.",
+    downloadUrl:
+      "/templates/Case%20Study%20-%20Fostering%20Coaching%20Culture%20(Leading%20General%20Insurance%20-%20122%20Branches).pdf",
+    uploadedBy: "Admin",
+    uploadedByEmail: "sales@xmonks.com",
+    uploadedAt: "2026-10-14T16:24:00.000Z",
+    uploadedAtMs: 1791985440004,
+    tags: ["Case Study", "General Insurance", "122 Branches", "ICF ACC", "Erickson Coaching", "Executive Mentoring"],
+    isPinned: true,
+    downloadCount: 26,
+    version: "v1.0",
+  },
+];
+
+// Initial seed templates containing the requested financial proposal, product induction materials, and case studies
 export const INITIAL_TEMPLATES: TemplateItem[] = [
   {
     id: "tpl-financial-proposal-master-01",
@@ -379,6 +381,7 @@ export const INITIAL_TEMPLATES: TemplateItem[] = [
     version: "v2.4",
   },
   ...PRODUCT_INDUCTION_TEMPLATES,
+  ...CASE_STUDIES_TEMPLATES,
 ];
 
 /**
@@ -394,9 +397,15 @@ export function getStoredTemplates(): TemplateItem[] {
         // Filter out any deprecated/removed sample templates
         parsed = parsed.filter((t) => !DEPRECATED_TEMPLATE_IDS.has(t.id));
 
-        // Ensure all INITIAL_TEMPLATES are present
+        // Ensure all INITIAL_TEMPLATES are present and up to date with latest category & metadata
         INITIAL_TEMPLATES.forEach((seedTpl) => {
-          if (!parsed.some((t) => t.id === seedTpl.id)) {
+          const idx = parsed.findIndex((t) => t.id === seedTpl.id);
+          if (idx >= 0) {
+            parsed[idx] = {
+              ...seedTpl,
+              downloadCount: Math.max(parsed[idx].downloadCount || 0, seedTpl.downloadCount || 0),
+            };
+          } else {
             parsed.push(seedTpl);
           }
         });
@@ -451,9 +460,15 @@ export function subscribeToTemplates(callback: (templates: TemplateItem[]) => vo
               list.push({ id: d.id, ...d.data() } as TemplateItem);
             }
           });
-          // Ensure seed templates are included
+          // Ensure seed templates are included and up to date
           INITIAL_TEMPLATES.forEach((seedTpl) => {
-            if (!list.some((t) => t.id === seedTpl.id)) {
+            const idx = list.findIndex((t) => t.id === seedTpl.id);
+            if (idx >= 0) {
+              list[idx] = {
+                ...seedTpl,
+                downloadCount: Math.max(list[idx].downloadCount || 0, seedTpl.downloadCount || 0),
+              };
+            } else {
               list.push(seedTpl);
             }
           });
