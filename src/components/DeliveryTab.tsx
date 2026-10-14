@@ -78,6 +78,7 @@ import {
   CoachAssignment,
   ClientSignoff,
   ProjectHealthStatus,
+  DeliveryLog,
 } from "@/types/delivery";
 import { SpringButton, SpringWidget, SpringCounter } from "@/components/spring";
 import {
@@ -184,27 +185,50 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   // Helper to compute payment realization for any record
   const getRecordFinancials = (r: DeliveryRecord) => {
     let received = 0;
+    let invoiced = 0;
     if (r.tenureType === "delivery") {
       (r.deliveryMilestones || []).forEach((m) => {
-        if (m.paymentStatus === "received") received += m.amount || 0;
+        if (m.paymentStatus === "received") {
+          received += m.amount || 0;
+          invoiced += m.amount || 0;
+        } else if (m.paymentStatus === "invoiced" || m.invoiceNumber) {
+          invoiced += m.amount || 0;
+        }
       });
     } else if (r.tenureType === "payment_terms") {
       (r.paymentTerms || []).forEach((t) => {
-        if (t.paymentStatus === "received") received += t.amount || 0;
+        if (t.paymentStatus === "received") {
+          received += t.amount || 0;
+          invoiced += t.amount || 0;
+        } else if (t.paymentStatus === "invoiced" || t.invoiceNumber) {
+          invoiced += t.amount || 0;
+        }
       });
     } else {
       // Contract: Combination of Delivery Milestones and Payment Terms
       (r.deliveryMilestones || []).forEach((m) => {
-        if (m.paymentStatus === "received") received += m.amount || 0;
+        if (m.paymentStatus === "received") {
+          received += m.amount || 0;
+          invoiced += m.amount || 0;
+        } else if (m.paymentStatus === "invoiced" || m.invoiceNumber) {
+          invoiced += m.amount || 0;
+        }
       });
       (r.paymentTerms || []).forEach((t) => {
-        if (t.paymentStatus === "received") received += t.amount || 0;
+        if (t.paymentStatus === "received") {
+          received += t.amount || 0;
+          invoiced += t.amount || 0;
+        } else if (t.paymentStatus === "invoiced" || t.invoiceNumber) {
+          invoiced += t.amount || 0;
+        }
       });
     }
     const total = r.dealValue || 0;
     const remaining = Math.max(0, total - received);
+    const invoicedPending = Math.max(0, invoiced - received);
+    const unbilled = Math.max(0, total - invoiced);
     const realizationRate = total > 0 ? (received / total) * 100 : 0;
-    return { total, received, remaining, realizationRate };
+    return { total, received, invoiced, invoicedPending, unbilled, remaining, realizationRate };
   };
 
   // Subscribe to real-time Delivery records
@@ -392,12 +416,19 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
         );
 
+      // Prioritize actual operational input dates (payment realization, completion signoff, or closure/start date)
+      // Never fall back to CRM database row creation date (createdAt)
+      const paymentDate =
+        r.paymentTerms?.find((t) => t.paymentStatus === "received" && t.paymentReceivedDate)?.paymentReceivedDate ||
+        r.deliveryMilestones?.find((m) => m.paymentStatus === "received" && m.paymentReceivedDate)?.paymentReceivedDate;
+
       const rawDate =
+        paymentDate ||
+        r.clientSignoff?.signoffDate ||
         r.closureMonth ||
         rowMatchingLead?.closureMonth ||
         r.startDate ||
-        rowMatchingLead?.expectedCloseDate ||
-        r.createdAt;
+        rowMatchingLead?.expectedCloseDate;
 
       const comps = getDateComponents(rawDate);
       const monthKey = comps.isValid
@@ -966,7 +997,22 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     const idx = currentList.findIndex((m) => m.id === milestoneId);
     if (idx === -1) return;
 
-    const updatedMilestone = { ...currentList[idx], ...updates };
+    const prevMilestone = currentList[idx];
+    const updatedMilestone = { ...prevMilestone, ...updates };
+
+    // Strict bidirectional synchronization between status and received date
+    if (updates.paymentStatus === "received") {
+      if (!updatedMilestone.paymentReceivedDate) {
+        updatedMilestone.paymentReceivedDate = updatedMilestone.targetDate || new Date().toISOString().split("T")[0];
+      }
+    } else if (updates.paymentStatus) {
+      delete updatedMilestone.paymentReceivedDate;
+      delete updatedMilestone.utrNumber;
+    }
+
+    if (updates.paymentReceivedDate) {
+      updatedMilestone.paymentStatus = "received";
+    }
 
     // If payment percent changed, recompute amount
     if (updates.paymentPercent !== undefined) {
@@ -985,7 +1031,20 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       }
     });
 
-    await updateDeliveryRecord(
+    let deliveryLogs = selectedRecord.deliveryLogs || [];
+    if (updates.paymentStatus === "received" && prevMilestone.paymentStatus !== "received") {
+      const newLog: DeliveryLog = {
+        id: `log-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        formattedDate: "Today",
+        author: currentUser?.name || "Delivery Lead",
+        type: "payment_received",
+        message: `${updatedMilestone.milestoneTitle} payment of ${formatINR(updatedMilestone.amount)} received and cleared into bank account.`,
+      };
+      deliveryLogs = [newLog, ...deliveryLogs];
+    }
+
+    const updated = await updateDeliveryRecord(
       selectedRecord.id,
       {
         deliveryMilestones: currentList,
@@ -993,9 +1052,15 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           selectedRecord.overallCompletionPercent,
           completedPercent
         ),
+        deliveryLogs,
       },
       currentUser?.name || "User"
     );
+    if (updated) {
+      setDeliveryRecords((prev) =>
+        prev.map((r) => (r.id === updated.id ? updated : r))
+      );
+    }
   };
 
   const handleAddMilestone = async () => {
@@ -1040,7 +1105,22 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     const idx = currentList.findIndex((t) => t.id === termId);
     if (idx === -1) return;
 
-    const updatedTerm = { ...currentList[idx], ...updates };
+    const prevTerm = currentList[idx];
+    const updatedTerm = { ...prevTerm, ...updates };
+
+    // Strict bidirectional synchronization between status and received date
+    if (updates.paymentStatus === "received") {
+      if (!updatedTerm.paymentReceivedDate) {
+        updatedTerm.paymentReceivedDate = updatedTerm.dueDate || new Date().toISOString().split("T")[0];
+      }
+    } else if (updates.paymentStatus) {
+      delete updatedTerm.paymentReceivedDate;
+      delete updatedTerm.utrNumber;
+    }
+
+    if (updates.paymentReceivedDate) {
+      updatedTerm.paymentStatus = "received";
+    }
 
     // If payment percent changed, recompute amount
     if (updates.paymentPercent !== undefined) {
@@ -1051,11 +1131,29 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
     currentList[idx] = updatedTerm;
 
-    await updateDeliveryRecord(
+    let deliveryLogs = selectedRecord.deliveryLogs || [];
+    if (updates.paymentStatus === "received" && prevTerm.paymentStatus !== "received") {
+      const newLog: DeliveryLog = {
+        id: `log-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        formattedDate: "Today",
+        author: currentUser?.name || "Client Partner",
+        type: "payment_received",
+        message: `${updatedTerm.termLabel} payment of ${formatINR(updatedTerm.amount)} received and cleared into bank account.`,
+      };
+      deliveryLogs = [newLog, ...deliveryLogs];
+    }
+
+    const updated = await updateDeliveryRecord(
       selectedRecord.id,
-      { paymentTerms: currentList },
+      { paymentTerms: currentList, deliveryLogs },
       currentUser?.name || "User"
     );
+    if (updated) {
+      setDeliveryRecords((prev) =>
+        prev.map((r) => (r.id === updated.id ? updated : r))
+      );
+    }
   };
 
   const handleAddPaymentTerm = async () => {
@@ -1123,60 +1221,66 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     let totalAllocatedPercent = 0;
     let totalAllocatedAmount = 0;
     let totalReceivedAmount = 0;
+    let totalInvoicedAmount = 0;
     let completedMilestonesCount = 0;
 
+    const processMilestone = (m: DeliveryMilestoneTranche) => {
+      totalAllocatedPercent += m.paymentPercent || 0;
+      totalAllocatedAmount += m.amount || 0;
+      if (m.paymentStatus === "received") {
+        totalReceivedAmount += m.amount || 0;
+        totalInvoicedAmount += m.amount || 0;
+      } else if (m.paymentStatus === "invoiced" || m.invoiceNumber) {
+        totalInvoicedAmount += m.amount || 0;
+      }
+      if (m.milestoneStatus === "completed") {
+        completedMilestonesCount++;
+      }
+    };
+
+    const processTerm = (t: PaymentTermTranche) => {
+      totalAllocatedPercent += t.paymentPercent || 0;
+      totalAllocatedAmount += t.amount || 0;
+      if (t.paymentStatus === "received") {
+        totalReceivedAmount += t.amount || 0;
+        totalInvoicedAmount += t.amount || 0;
+      } else if (t.paymentStatus === "invoiced" || t.invoiceNumber) {
+        totalInvoicedAmount += t.amount || 0;
+      }
+    };
+
     if (selectedRecord.tenureType === "delivery") {
-      selectedRecord.deliveryMilestones.forEach((m) => {
-        totalAllocatedPercent += m.paymentPercent || 0;
-        totalAllocatedAmount += m.amount || 0;
-        if (m.paymentStatus === "received") {
-          totalReceivedAmount += m.amount || 0;
-        }
-        if (m.milestoneStatus === "completed") {
-          completedMilestonesCount++;
-        }
-      });
+      (selectedRecord.deliveryMilestones || []).forEach(processMilestone);
     } else if (selectedRecord.tenureType === "payment_terms") {
-      selectedRecord.paymentTerms.forEach((t) => {
-        totalAllocatedPercent += t.paymentPercent || 0;
-        totalAllocatedAmount += t.amount || 0;
-        if (t.paymentStatus === "received") {
-          totalReceivedAmount += t.amount || 0;
-        }
-      });
+      (selectedRecord.paymentTerms || []).forEach(processTerm);
     } else {
       // Contract: Combination of Delivery Milestones and Payment Terms
-      selectedRecord.deliveryMilestones.forEach((m) => {
-        totalAllocatedPercent += m.paymentPercent || 0;
-        totalAllocatedAmount += m.amount || 0;
-        if (m.paymentStatus === "received") {
-          totalReceivedAmount += m.amount || 0;
-        }
-        if (m.milestoneStatus === "completed") {
-          completedMilestonesCount++;
-        }
-      });
-      selectedRecord.paymentTerms.forEach((t) => {
-        totalAllocatedPercent += t.paymentPercent || 0;
-        totalAllocatedAmount += t.amount || 0;
-        if (t.paymentStatus === "received") {
-          totalReceivedAmount += t.amount || 0;
-        }
-      });
+      (selectedRecord.deliveryMilestones || []).forEach(processMilestone);
+      (selectedRecord.paymentTerms || []).forEach(processTerm);
     }
 
     const pendingAmount = Math.max(0, selectedRecord.dealValue - totalReceivedAmount);
+    const invoicedPendingAmount = Math.max(0, totalInvoicedAmount - totalReceivedAmount);
+    const unbilledAmount = Math.max(0, selectedRecord.dealValue - totalInvoicedAmount);
     const percentReceived =
       selectedRecord.dealValue > 0
         ? Math.round((totalReceivedAmount / selectedRecord.dealValue) * 100)
+        : 0;
+    const percentInvoiced =
+      selectedRecord.dealValue > 0
+        ? Math.round((totalInvoicedAmount / selectedRecord.dealValue) * 100)
         : 0;
 
     return {
       totalAllocatedPercent,
       totalAllocatedAmount,
       totalReceivedAmount,
+      totalInvoicedAmount,
+      invoicedPendingAmount,
+      unbilledAmount,
       pendingAmount,
       percentReceived,
+      percentInvoiced,
       completedMilestonesCount,
     };
   }, [selectedRecord]);
@@ -2157,34 +2261,53 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             editable={true}
           />
 
-          {/* Quick Financial Summary */}
+          {/* Executive Financial Parameters Strip */}
           {selectedRecordStats && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gradient-to-r from-slate-50 via-emerald-50/20 to-slate-50 dark:from-slate-800/40 dark:via-emerald-950/20 dark:to-slate-800/40 rounded-xl border border-emerald-200/50 dark:border-emerald-900/50">
-              <div>
-                <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
-                  <span>Payment Realized</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-black">
-                    {selectedRecordStats.percentReceived}% ({formatINR(selectedRecordStats.totalReceivedAmount)})
-                  </span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-gradient-to-r from-slate-50 via-emerald-50/20 to-indigo-50/20 dark:from-slate-800/40 dark:via-emerald-950/20 dark:to-indigo-950/20 rounded-xl border border-emerald-200/50 dark:border-emerald-900/50 shadow-2xs">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
+                  Contract Value
+                </span>
+                <div className="text-base font-black text-slate-900 dark:text-white">
+                  {formatINR(selectedRecord.dealValue)}
                 </div>
-                <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${selectedRecordStats.percentReceived}%` }}
-                  />
-                </div>
+                <span className="text-[10px] text-slate-500 font-medium">Total Deal Size</span>
               </div>
 
-              <div>
-                <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
-                  <span>Pending Payment Due</span>
-                  <span className="text-amber-600 dark:text-amber-400 font-black">
-                    {formatINR(selectedRecordStats.pendingAmount)}
-                  </span>
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 block tracking-wider">
+                  Cash Collected
+                </span>
+                <div className="text-base font-black text-emerald-700 dark:text-emerald-300">
+                  {formatINR(selectedRecordStats.totalReceivedAmount)}
                 </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Total Contract Value: <strong>{formatINR(selectedRecord.dealValue)}</strong>
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                  {selectedRecordStats.percentReceived}% Realized in Bank
+                </span>
+              </div>
+
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block tracking-wider">
+                  Invoiced (Awaiting Bank)
+                </span>
+                <div className="text-base font-black text-indigo-700 dark:text-indigo-300">
+                  {formatINR(selectedRecordStats.invoicedPendingAmount)}
                 </div>
+                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                  {selectedRecordStats.invoicedPendingAmount > 0 ? "Billed / Pending Clearance" : "0 Pending Invoices"}
+                </span>
+              </div>
+
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 block tracking-wider">
+                  Unbilled / Scheduled
+                </span>
+                <div className="text-base font-black text-amber-700 dark:text-amber-300">
+                  {formatINR(selectedRecordStats.unbilledAmount)}
+                </div>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                  {formatINR(selectedRecordStats.pendingAmount)} Total Outstanding
+                </span>
               </div>
             </div>
           )}
@@ -2670,9 +2793,10 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <th className="py-2.5 px-3">Project Completion (%)</th>
                         <th className="py-2.5 px-3">Payment Release (%)</th>
                         <th className="py-2.5 px-3">Amount (INR)</th>
-                        <th className="py-2.5 px-3">Target Date</th>
+                        <th className="py-2.5 px-3">Target / Due Date</th>
                         <th className="py-2.5 px-3">Work Status</th>
                         <th className="py-2.5 px-3">Payment Status</th>
+                        <th className="py-2.5 px-3">Payment Received Date</th>
                         <th className="py-2.5 px-3 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -2739,6 +2863,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                 handleUpdateMilestone(m.id, { targetDate: e.target.value })
                               }
                               className="px-2 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300"
+                              title="Milestone Target Date"
                             />
                           </td>
 
@@ -2770,13 +2895,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                 value={m.paymentStatus}
                                 onChange={(e) => {
                                   const newStatus = e.target.value as TranchePaymentStatus;
-                                  const updates: Partial<DeliveryMilestoneTranche> = {
-                                    paymentStatus: newStatus,
-                                  };
-                                  if (newStatus === "received" && !m.paymentReceivedDate) {
-                                    updates.paymentReceivedDate = new Date().toISOString().split("T")[0];
-                                  }
-                                  handleUpdateMilestone(m.id, updates);
+                                  handleUpdateMilestone(m.id, { paymentStatus: newStatus });
                                 }}
                                 className={`px-2 py-1 text-xs font-bold rounded-lg border ${
                                   m.paymentStatus === "received"
@@ -2818,6 +2937,80 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                               >
                                 <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
                                 <span className="truncate">UTR: {m.utrNumber}</span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Payment Received Date & Clearance Column */}
+                          <td className="py-3 px-3 min-w-[150px]">
+                            {m.paymentStatus === "received" ? (
+                              <div className="flex items-center space-x-1.5">
+                                <input
+                                  type="date"
+                                  value={m.paymentReceivedDate || m.targetDate || ""}
+                                  onChange={(e) => {
+                                    handleUpdateMilestone(m.id, {
+                                      paymentReceivedDate: e.target.value,
+                                      paymentStatus: "received",
+                                    });
+                                  }}
+                                  className="px-2 py-1 text-xs font-bold bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 rounded-lg text-emerald-800 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
+                                  title="Payment Received Date (Cleared into Bank)"
+                                />
+                                <span title="Funds Received & Cleared">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                                </span>
+                              </div>
+                            ) : m.paymentStatus === "invoiced" ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                  Awaiting Bank
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateMilestone(m.id, {
+                                      paymentStatus: "received",
+                                      paymentReceivedDate: m.targetDate || new Date().toISOString().split("T")[0],
+                                    })
+                                  }
+                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                  title="Mark milestone payment as received"
+                                >
+                                  💰 Mark Received
+                                </button>
+                              </div>
+                            ) : m.paymentStatus === "overdue" ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                  Overdue
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateMilestone(m.id, {
+                                      paymentStatus: "received",
+                                      paymentReceivedDate: m.targetDate || new Date().toISOString().split("T")[0],
+                                    })
+                                  }
+                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                >
+                                  💰 Mark Received
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-[11px] text-slate-400 italic">
+                                  Scheduled
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateMilestone(m.id, { paymentStatus: "invoiced" })}
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-md transition cursor-pointer"
+                                  title="Mark milestone as invoiced"
+                                >
+                                  📄 Invoice
+                                </button>
                               </div>
                             )}
                           </td>
@@ -2899,8 +3092,9 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <th className="py-2.5 px-3">Timeframe / Schedule</th>
                         <th className="py-2.5 px-3">Payment (%)</th>
                         <th className="py-2.5 px-3">Amount (INR)</th>
-                        <th className="py-2.5 px-3">Payment Received</th>
+                        <th className="py-2.5 px-3">Schedule / Due Date</th>
                         <th className="py-2.5 px-3">Payment Status</th>
+                        <th className="py-2.5 px-3">Payment Received Date</th>
                         <th className="py-2.5 px-3 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -2964,35 +3158,29 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             {formatINR(t.amount)}
                           </td>
 
+                          {/* Due / Schedule Date */}
                           <td className="py-3 px-3">
                             <input
                               type="date"
-                              value={t.paymentReceivedDate || t.dueDate || ""}
+                              value={t.dueDate || ""}
                               onChange={(e) => {
-                                const val = e.target.value;
                                 handleUpdatePaymentTerm(t.id, {
-                                  paymentReceivedDate: val,
-                                  dueDate: val,
+                                  dueDate: e.target.value,
                                 });
                               }}
                               className="px-2 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300"
-                              title="Payment Received Date"
+                              title="Installment Due / Scheduled Invoice Date"
                             />
                           </td>
 
+                          {/* Payment Status Dropdown */}
                           <td className="py-3 px-3">
                             <div className="flex items-center space-x-1.5">
                               <select
                                 value={t.paymentStatus}
                                 onChange={(e) => {
                                   const newStatus = e.target.value as TranchePaymentStatus;
-                                  const updates: Partial<PaymentTermTranche> = {
-                                    paymentStatus: newStatus,
-                                  };
-                                  if (newStatus === "received" && !t.paymentReceivedDate) {
-                                    updates.paymentReceivedDate = new Date().toISOString().split("T")[0];
-                                  }
-                                  handleUpdatePaymentTerm(t.id, updates);
+                                  handleUpdatePaymentTerm(t.id, { paymentStatus: newStatus });
                                 }}
                                 className={`px-2 py-1 text-xs font-bold rounded-lg border ${
                                   t.paymentStatus === "received"
@@ -3034,6 +3222,80 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                               >
                                 <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
                                 <span className="truncate">UTR: {t.utrNumber}</span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Payment Received Date & Clearance Column */}
+                          <td className="py-3 px-3 min-w-[150px]">
+                            {t.paymentStatus === "received" ? (
+                              <div className="flex items-center space-x-1.5">
+                                <input
+                                  type="date"
+                                  value={t.paymentReceivedDate || t.dueDate || ""}
+                                  onChange={(e) => {
+                                    handleUpdatePaymentTerm(t.id, {
+                                      paymentReceivedDate: e.target.value,
+                                      paymentStatus: "received",
+                                    });
+                                  }}
+                                  className="px-2 py-1 text-xs font-bold bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 rounded-lg text-emerald-800 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
+                                  title="Payment Received Date (Cleared into Bank)"
+                                />
+                                <span title="Funds Received & Cleared">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                                </span>
+                              </div>
+                            ) : t.paymentStatus === "invoiced" ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                  Awaiting Bank
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdatePaymentTerm(t.id, {
+                                      paymentStatus: "received",
+                                      paymentReceivedDate: t.dueDate || new Date().toISOString().split("T")[0],
+                                    })
+                                  }
+                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                  title="Mark payment as received into bank"
+                                >
+                                  💰 Mark Received
+                                </button>
+                              </div>
+                            ) : t.paymentStatus === "overdue" ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                  Overdue
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdatePaymentTerm(t.id, {
+                                      paymentStatus: "received",
+                                      paymentReceivedDate: t.dueDate || new Date().toISOString().split("T")[0],
+                                    })
+                                  }
+                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                >
+                                  💰 Mark Received
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-[11px] text-slate-400 italic">
+                                  Scheduled
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdatePaymentTerm(t.id, { paymentStatus: "invoiced" })}
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-md transition cursor-pointer"
+                                  title="Mark term as invoiced"
+                                >
+                                  📄 Invoice
+                                </button>
                               </div>
                             )}
                           </td>
@@ -3219,49 +3481,61 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   </div>
 
                   {/* Financial Metrics Strip for this Project */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Total Project Value
+                        Total Deal Value
                       </span>
                       <div className="text-base font-black text-slate-900 dark:text-white mt-0.5">
                         {formatINR(selectedRecord.dealValue)}
                       </div>
-                      <span className="text-[10px] text-slate-500">Contracted deal size</span>
+                      <span className="text-[10px] text-slate-500">Contracted deal</span>
                     </div>
 
                     <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-900">
                       <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
-                        Total Amount Received
+                        Cash Collected
                       </span>
                       <div className="text-base font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
                         {formatINR(totalReceived)}
                       </div>
                       <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                        {totalPercent}% of project deal
-                      </span>
-                    </div>
-
-                    <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900">
-                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
-                        Pending Receivable
-                      </span>
-                      <div className="text-base font-black text-amber-700 dark:text-amber-300 mt-0.5">
-                        {formatINR(pendingAmount)}
-                      </div>
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
-                        {Math.max(0, 100 - totalPercent)}% remaining
+                        {totalPercent}% Realized in Bank
                       </span>
                     </div>
 
                     <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-200 dark:border-indigo-900">
                       <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
-                        Cleared Payments
+                        Invoiced (Awaiting Bank)
                       </span>
                       <div className="text-base font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
+                        {formatINR(selectedRecordStats?.invoicedPendingAmount || 0)}
+                      </div>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                        {(selectedRecordStats?.invoicedPendingAmount || 0) > 0 ? "Billed / In Transit" : "0 Awaiting Payment"}
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900">
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
+                        Unbilled Scheduled
+                      </span>
+                      <div className="text-base font-black text-amber-700 dark:text-amber-300 mt-0.5">
+                        {formatINR(selectedRecordStats?.unbilledAmount || 0)}
+                      </div>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                        {formatINR(pendingAmount)} Total Balance
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-cyan-50/60 dark:bg-cyan-950/20 rounded-xl border border-cyan-200 dark:border-cyan-900">
+                      <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wider block">
+                        Cleared Receipts
+                      </span>
+                      <div className="text-base font-black text-cyan-700 dark:text-cyan-300 mt-0.5">
                         {receivedPayments.length} Receipts
                       </div>
-                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                      <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">
                         Status: {totalPercent >= 100 ? "Fully Paid" : "In Progress"}
                       </span>
                     </div>
