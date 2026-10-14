@@ -12,7 +12,8 @@ import { TemplateItem, TemplateCategory, TEMPLATE_CATEGORIES } from "@/types/tem
 import { formatBytes } from "./formatters";
 
 const TEMPLATES_COLLECTION = "b2b_templates";
-const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v1";
+const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v2";
+const DEPRECATED_TEMPLATE_IDS = new Set(["tpl-icici-fin-prop-02", "tpl-icici-zsm-prop-03"]);
 
 // Initial seed templates containing the requested file categorized under "Financial Proposals"
 export const INITIAL_TEMPLATES: TemplateItem[] = [
@@ -45,50 +46,6 @@ export const INITIAL_TEMPLATES: TemplateItem[] = [
     downloadCount: 18,
     version: "v2.4",
   },
-  {
-    id: "tpl-icici-fin-prop-02",
-    title: "Executive Coaching Financial Proposal 2.0 (ICICI Lombard)",
-    fileName: "Financial  Proposal 2.0  _ Executive Coaching (Sept 2026) @ ICICI Lombard (1).pdf",
-    fileSize: "362.5 KB",
-    fileSizeBytes: 371160,
-    fileType: "pdf",
-    category: "financial_proposals",
-    categoryLabel: "Financial Proposals",
-    description:
-      "Sample executed executive coaching commercial proposal format featuring cohort pricing, diagnostic tranche schedules, and invoicing milestones.",
-    downloadUrl:
-      "/Financial%20%20Proposal%202.0%20%20_%20Executive%20Coaching%20(Sept%202026)%20@%20ICICI%20Lombard%20(1).pdf",
-    uploadedBy: "Admin",
-    uploadedByEmail: "sales@xmonks.com",
-    uploadedAt: "2026-09-15T10:00:00.000Z",
-    uploadedAtMs: 1789466400000,
-    tags: ["Financial Proposals", "ICICI Lombard", "Executive Coaching", "Sample PDF"],
-    isPinned: false,
-    downloadCount: 9,
-    version: "v2.0",
-  },
-  {
-    id: "tpl-icici-zsm-prop-03",
-    title: "ZSM as Coach Financial Proposal 4.0 (ICICI Lombard)",
-    fileName: "Financial Proposal 4.0  _ ZSM as Coach (Aug 2026) @ ICICI Lombard.pdf",
-    fileSize: "451.1 KB",
-    fileSizeBytes: 461978,
-    fileType: "pdf",
-    category: "financial_proposals",
-    categoryLabel: "Financial Proposals",
-    description:
-      "Large-scale sales leadership coaching proposal template with multi-phase delivery and staggered payment terms.",
-    downloadUrl:
-      "/Financial%20Proposal%204.0%20%20_%20ZSM%20as%20Coach%20(Aug%202026)%20@%20ICICI%20Lombard.pdf",
-    uploadedBy: "Admin",
-    uploadedByEmail: "sales@xmonks.com",
-    uploadedAt: "2026-08-20T10:00:00.000Z",
-    uploadedAtMs: 1787220000000,
-    tags: ["Financial Proposals", "ZSM", "Large Enterprise", "Phased Commercials"],
-    isPinned: false,
-    downloadCount: 7,
-    version: "v4.0",
-  },
 ];
 
 /**
@@ -97,10 +54,15 @@ export const INITIAL_TEMPLATES: TemplateItem[] = [
 export function getStoredTemplates(): TemplateItem[] {
   if (typeof window === "undefined") return INITIAL_TEMPLATES;
   try {
-    const raw = localStorage.getItem(TEMPLATES_STORAGE_KEY);
+    // Also clean previous key if it exists
+    const legacyRaw = localStorage.getItem("xmonks_b2b_templates_v1");
+    let raw = localStorage.getItem(TEMPLATES_STORAGE_KEY) || legacyRaw;
     if (raw) {
-      const parsed: TemplateItem[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      let parsed: TemplateItem[] = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // Filter out any deprecated/removed sample templates
+        parsed = parsed.filter((t) => !DEPRECATED_TEMPLATE_IDS.has(t.id));
+
         // Ensure the requested financial proposal template is always present
         const hasMainTemplate = parsed.some(
           (t) =>
@@ -109,8 +71,10 @@ export function getStoredTemplates(): TemplateItem[] {
         );
         if (!hasMainTemplate) {
           parsed.unshift(INITIAL_TEMPLATES[0]);
-          saveLocalTemplates(parsed);
         }
+        saveLocalTemplates(parsed);
+        // Clear old key
+        if (legacyRaw) localStorage.removeItem("xmonks_b2b_templates_v1");
         return parsed;
       }
     }
@@ -128,7 +92,8 @@ export function getStoredTemplates(): TemplateItem[] {
 export function saveLocalTemplates(templates: TemplateItem[]): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+    const sanitized = templates.filter((t) => !DEPRECATED_TEMPLATE_IDS.has(t.id));
+    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(sanitized));
   } catch (e) {
     console.warn("Failed to save templates to localStorage", e);
   }
@@ -152,7 +117,12 @@ export function subscribeToTemplates(callback: (templates: TemplateItem[]) => vo
         if (!snapshot.empty) {
           const list: TemplateItem[] = [];
           snapshot.forEach((d) => {
-            list.push({ id: d.id, ...d.data() } as TemplateItem);
+            if (DEPRECATED_TEMPLATE_IDS.has(d.id)) {
+              // Delete deprecated template from Firestore
+              deleteDoc(doc(db, TEMPLATES_COLLECTION, d.id)).catch(() => {});
+            } else {
+              list.push({ id: d.id, ...d.data() } as TemplateItem);
+            }
           });
           // Ensure seed template is included
           if (!list.some((t) => t.id === INITIAL_TEMPLATES[0].id)) {
