@@ -1737,6 +1737,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         : "DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE"
                     }
                     activeRecordId={selectedRecordId}
+                    selectedMonthFilter={selectedMonthFilter}
                   />
                 </div>
               )}

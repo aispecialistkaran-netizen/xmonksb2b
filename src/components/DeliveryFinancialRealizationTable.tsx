@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Download, ExternalLink, User } from "lucide-react";
-import { DeliveryRecord } from "@/types/delivery";
+import { Download, ExternalLink, Calendar } from "lucide-react";
+import { DeliveryRecord, TranchePaymentStatus } from "@/types/delivery";
 import { Lead } from "@/types/lead";
-import { formatINR } from "@/lib/formatters";
+import { formatINR, getDateComponents } from "@/lib/formatters";
 import { downloadCSV } from "@/lib/deliveryAnalytics";
 
 interface DeliveryFinancialRealizationTableProps {
@@ -14,6 +14,17 @@ interface DeliveryFinancialRealizationTableProps {
   title?: string;
   showExportButton?: boolean;
   activeRecordId?: string | null;
+  selectedMonthFilter?: string;
+}
+
+interface TargetMonthInfo {
+  offset: number; // 0, 1, 2
+  year: number;
+  monthIndex: number; // 0-11
+  monthNum: number; // 1-12
+  shortLabel: string; // e.g. "OCT"
+  monthYearLabel: string; // e.g. "Oct 2026"
+  colHeader: string; // e.g. "OCT INVOICED"
 }
 
 export const DeliveryFinancialRealizationTable: React.FC<
@@ -25,40 +36,190 @@ export const DeliveryFinancialRealizationTable: React.FC<
   title = "DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE",
   showExportButton = true,
   activeRecordId,
+  selectedMonthFilter,
 }) => {
-  // Helper for computing single record financial values
+  // Determine the 3 target months: Month 0 (Current / Chosen month), Month 1 (+1 month), Month 2 (+2 months)
+  const targetMonths: TargetMonthInfo[] = useMemo(() => {
+    let baseYear = 2026;
+    let baseMonthIndex = 9; // October (0-indexed)
+
+    if (selectedMonthFilter && selectedMonthFilter.toLowerCase() !== "all") {
+      const s = selectedMonthFilter.trim().toLowerCase();
+      const MONTH_NAMES = [
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december"
+      ];
+      const MONTH_SHORT = [
+        "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec"
+      ];
+
+      let found = false;
+      for (let i = 0; i < 12; i++) {
+        if (s.includes(MONTH_NAMES[i]) || s.includes(MONTH_SHORT[i])) {
+          const yearMatch = s.match(/\b(20\d\d)\b/);
+          baseYear = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear();
+          baseMonthIndex = i;
+          found = true;
+          break;
+        }
+      }
+
+      if (!found) {
+        const isoMatch = s.match(/^(20\d\d)-(\d{1,2})/);
+        if (isoMatch) {
+          baseYear = parseInt(isoMatch[1], 10);
+          baseMonthIndex = parseInt(isoMatch[2], 10) - 1;
+        }
+      }
+    } else {
+      const now = new Date();
+      baseYear = now.getFullYear();
+      baseMonthIndex = now.getMonth();
+    }
+
+    const months: TargetMonthInfo[] = [];
+    for (let offset = 0; offset < 3; offset++) {
+      const d = new Date(baseYear, baseMonthIndex + offset, 1);
+      const y = d.getFullYear();
+      const mIdx = d.getMonth();
+      const shortLabel = d.toLocaleString("en-US", { month: "short" }).toUpperCase();
+      const monthYearLabel = `${d.toLocaleString("en-US", { month: "short" })} ${y}`;
+      const colHeader = `${shortLabel} INVOICED`;
+
+      months.push({
+        offset,
+        year: y,
+        monthIndex: mIdx,
+        monthNum: mIdx + 1,
+        shortLabel,
+        monthYearLabel,
+        colHeader,
+      });
+    }
+
+    return months;
+  }, [selectedMonthFilter]);
+
+  // Helper for computing single record financial values across Project Cost & 3 Invoicing Months
   const getRecordFinancialBreakdown = (record: DeliveryRecord) => {
     const dealVal = record.dealValue || 0;
-    let inv = 0;
+    let totalInv = 0;
+    let m0Inv = 0;
+    let m1Inv = 0;
+    let m2Inv = 0;
 
-    if (record.tenureType === "payment_terms") {
+    interface ExtractedTranche {
+      amount: number;
+      paymentStatus: TranchePaymentStatus;
+      dateStr?: string;
+      invoiceNumber?: string;
+      isAdvance?: boolean;
+    }
+
+    const tranches: ExtractedTranche[] = [];
+
+    if (record.tenureType === "payment_terms" || record.tenureType === "contract") {
       (record.paymentTerms || []).forEach((t) => {
-        if (t.paymentStatus === "received" || t.paymentStatus === "invoiced" || t.invoiceNumber) {
-          inv += t.amount || 0;
-        }
+        tranches.push({
+          amount: t.amount || 0,
+          paymentStatus: t.paymentStatus,
+          dateStr: t.invoiceDate || t.paymentReceivedDate || t.dueDate,
+          invoiceNumber: t.invoiceNumber,
+          isAdvance: t.isAdvance,
+        });
       });
-    } else if (record.tenureType === "delivery") {
+    }
+
+    if (record.tenureType === "delivery" || record.tenureType === "contract") {
       (record.deliveryMilestones || []).forEach((m) => {
-        if (m.paymentStatus === "received" || m.paymentStatus === "invoiced" || m.invoiceNumber) {
-          inv += m.amount || 0;
-        }
+        tranches.push({
+          amount: m.amount || 0,
+          paymentStatus: m.paymentStatus,
+          dateStr: m.invoiceDate || m.paymentReceivedDate || m.targetDate || m.completionDate,
+          invoiceNumber: m.invoiceNumber,
+          isAdvance: false,
+        });
       });
-    } else {
-      (record.deliveryMilestones || []).forEach((m) => {
-        if (m.paymentStatus === "received" || m.paymentStatus === "invoiced" || m.invoiceNumber) {
-          inv += m.amount || 0;
+    }
+
+    // 1. Calculate Total Invoiced across all time
+    tranches.forEach((t) => {
+      if (t.paymentStatus === "received" || t.paymentStatus === "invoiced" || Boolean(t.invoiceNumber)) {
+        totalInv += t.amount;
+      }
+    });
+
+    // 2. Distribute tranches into Month 0 (Current / Chosen), Month 1 (+1 month), Month 2 (+2 months)
+    tranches.forEach((t, idx) => {
+      let tYear: number | null = null;
+      let tMonthIndex: number | null = null;
+
+      if (t.dateStr) {
+        const comps = getDateComponents(t.dateStr);
+        if (comps.isValid) {
+          tYear = comps.year;
+          tMonthIndex = comps.monthNum - 1;
         }
-      });
-      (record.paymentTerms || []).forEach((t) => {
-        if (t.paymentStatus === "received" || t.paymentStatus === "invoiced" || t.invoiceNumber) {
-          inv += t.amount || 0;
+      }
+
+      // Fallback if no explicit date on tranche
+      if (tYear === null || tMonthIndex === null) {
+        if (t.isAdvance || idx === 0) {
+          const comps = getDateComponents(record.startDate || record.createdAt);
+          if (comps.isValid) {
+            tYear = comps.year;
+            tMonthIndex = comps.monthNum - 1;
+          }
+        } else if (idx === tranches.length - 1 && record.targetCompletionDate) {
+          const comps = getDateComponents(record.targetCompletionDate);
+          if (comps.isValid) {
+            tYear = comps.year;
+            tMonthIndex = comps.monthNum - 1;
+          }
+        } else if (record.startDate) {
+          const comps = getDateComponents(record.startDate);
+          if (comps.isValid) {
+            const offset = Math.min(idx, 2);
+            const interp = new Date(comps.year, comps.monthNum - 1 + offset, 1);
+            tYear = interp.getFullYear();
+            tMonthIndex = interp.getMonth();
+          }
         }
-      });
+      }
+
+      // Match against Month 0 (e.g. October 2026)
+      if (tYear === targetMonths[0].year && tMonthIndex === targetMonths[0].monthIndex) {
+        if (t.paymentStatus === "received" || t.paymentStatus === "invoiced" || Boolean(t.invoiceNumber)) {
+          m0Inv += t.amount;
+        }
+      }
+
+      // Match against Month 1 (e.g. November 2026) - includes scheduled / upcoming invoicing
+      if (tYear === targetMonths[1].year && tMonthIndex === targetMonths[1].monthIndex) {
+        m1Inv += t.amount;
+      }
+
+      // Match against Month 2 (e.g. December 2026) - includes scheduled / upcoming invoicing
+      if (tYear === targetMonths[2].year && tMonthIndex === targetMonths[2].monthIndex) {
+        m2Inv += t.amount;
+      }
+    });
+
+    // Safeguard: If a specific month is selected (e.g. Oct 2026) and this record was matched to it,
+    // and totalInv > 0 but m0Inv was 0 due to missing tranche date, attribute to m0Inv
+    if (selectedMonthFilter && selectedMonthFilter.toLowerCase() !== "all") {
+      if (m0Inv === 0 && totalInv > 0) {
+        m0Inv = totalInv;
+      }
     }
 
     return {
       dealVal,
-      inv,
+      m0Inv,
+      m1Inv,
+      m2Inv,
+      totalInv,
     };
   };
 
@@ -78,19 +239,28 @@ export const DeliveryFinancialRealizationTable: React.FC<
   // Portfolio Scope Totals
   const totals = useMemo(() => {
     let totalDealValue = 0;
+    let totalM0Invoiced = 0;
+    let totalM1Invoiced = 0;
+    let totalM2Invoiced = 0;
     let totalInvoiced = 0;
 
     records.forEach((r) => {
       const b = getRecordFinancialBreakdown(r);
       totalDealValue += b.dealVal;
-      totalInvoiced += b.inv;
+      totalM0Invoiced += b.m0Inv;
+      totalM1Invoiced += b.m1Inv;
+      totalM2Invoiced += b.m2Inv;
+      totalInvoiced += b.totalInv;
     });
 
     return {
       totalDealValue,
+      totalM0Invoiced,
+      totalM1Invoiced,
+      totalM2Invoiced,
       totalInvoiced,
     };
-  }, [records]);
+  }, [records, targetMonths]);
 
   // CSV Exporter
   const handleExportCSV = () => {
@@ -103,8 +273,11 @@ export const DeliveryFinancialRealizationTable: React.FC<
       "Target Date",
       "Delivery Status",
       "Completion (%)",
-      "Delivery Book (INR)",
-      "Invoiced Book (INR)",
+      "Project Cost (INR)",
+      `${targetMonths[0].monthYearLabel} Invoiced (INR)`,
+      `${targetMonths[1].monthYearLabel} Invoiced (INR)`,
+      `${targetMonths[2].monthYearLabel} Invoiced (INR)`,
+      "Total Invoiced (INR)",
     ];
 
     const rows = records.map((record) => {
@@ -121,7 +294,10 @@ export const DeliveryFinancialRealizationTable: React.FC<
         `"${record.deliveryStatus}"`,
         record.overallCompletionPercent || 0,
         b.dealVal,
-        b.inv,
+        b.m0Inv,
+        b.m1Inv,
+        b.m2Inv,
+        b.totalInv,
       ];
     });
 
@@ -182,9 +358,29 @@ export const DeliveryFinancialRealizationTable: React.FC<
               <th className="py-3 px-3">Lead Owner</th>
               <th className="py-3 px-3">Project Tenure</th>
               <th className="py-3 px-3">Status & Progress</th>
-              <th className="py-3 px-3 text-right">Delivery Book</th>
-              <th className="py-3 px-3 text-right text-cyan-700 dark:text-cyan-400">
-                Invoiced Book
+              <th className="py-3 px-3 text-right text-slate-900 dark:text-white whitespace-nowrap">
+                Project Cost
+              </th>
+              <th className="py-3 px-3 text-right text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                <div>{targetMonths[0].shortLabel} Invoiced</div>
+                <div className="text-[9px] font-bold text-slate-400 tracking-normal normal-case">
+                  {targetMonths[0].monthYearLabel}
+                </div>
+              </th>
+              <th className="py-3 px-3 text-right text-cyan-700 dark:text-cyan-400 whitespace-nowrap">
+                <div>{targetMonths[1].shortLabel} Invoiced</div>
+                <div className="text-[9px] font-bold text-slate-400 tracking-normal normal-case">
+                  {targetMonths[1].monthYearLabel}
+                </div>
+              </th>
+              <th className="py-3 px-3 text-right text-indigo-700 dark:text-indigo-400 whitespace-nowrap">
+                <div>{targetMonths[2].shortLabel} Invoiced</div>
+                <div className="text-[9px] font-bold text-slate-400 tracking-normal normal-case">
+                  {targetMonths[2].monthYearLabel}
+                </div>
+              </th>
+              <th className="py-3 px-3 text-right text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                Total Invoiced
               </th>
             </tr>
           </thead>
@@ -281,14 +477,29 @@ export const DeliveryFinancialRealizationTable: React.FC<
                     </div>
                   </td>
 
-                  {/* Delivery Book */}
+                  {/* Project Cost (formerly Delivery Book) */}
                   <td className="py-3.5 px-3 text-right font-black text-slate-900 dark:text-white text-xs whitespace-nowrap">
                     {formatINR(b.dealVal)}
                   </td>
 
-                  {/* Invoiced Book */}
+                  {/* Month 0 Invoiced */}
+                  <td className="py-3.5 px-3 text-right font-bold text-emerald-700 dark:text-emerald-400 text-xs whitespace-nowrap">
+                    {formatINR(b.m0Inv)}
+                  </td>
+
+                  {/* Month 1 Invoiced */}
                   <td className="py-3.5 px-3 text-right font-bold text-cyan-700 dark:text-cyan-400 text-xs whitespace-nowrap">
-                    {formatINR(b.inv)}
+                    {formatINR(b.m1Inv)}
+                  </td>
+
+                  {/* Month 2 Invoiced */}
+                  <td className="py-3.5 px-3 text-right font-bold text-indigo-700 dark:text-indigo-400 text-xs whitespace-nowrap">
+                    {formatINR(b.m2Inv)}
+                  </td>
+
+                  {/* Total Invoiced */}
+                  <td className="py-3.5 px-3 text-right font-black text-slate-800 dark:text-slate-200 text-xs whitespace-nowrap">
+                    {formatINR(b.totalInv)}
                   </td>
                 </tr>
               );
@@ -305,7 +516,16 @@ export const DeliveryFinancialRealizationTable: React.FC<
               <td className="py-3.5 px-3 text-right text-slate-900 dark:text-white">
                 {formatINR(totals.totalDealValue)}
               </td>
+              <td className="py-3.5 px-3 text-right text-emerald-700 dark:text-emerald-400">
+                {formatINR(totals.totalM0Invoiced)}
+              </td>
               <td className="py-3.5 px-3 text-right text-cyan-700 dark:text-cyan-400">
+                {formatINR(totals.totalM1Invoiced)}
+              </td>
+              <td className="py-3.5 px-3 text-right text-indigo-700 dark:text-indigo-400">
+                {formatINR(totals.totalM2Invoiced)}
+              </td>
+              <td className="py-3.5 px-3 text-right text-slate-800 dark:text-slate-200">
                 {formatINR(totals.totalInvoiced)}
               </td>
             </tr>
