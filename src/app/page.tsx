@@ -49,7 +49,6 @@ import { MoneyLottieLoader } from "@/components/MoneyLottieLoader";
 import { ProspectorTab } from "@/components/ProspectorTab";
 import { LibraryTab } from "@/components/LibraryTab";
 import { TemplatesTab } from "@/components/TemplatesTab";
-import { ThursdayPresentationModal } from "@/components/presentation/ThursdayPresentationModal";
 import { SalesQuoteBanner } from "@/components/SalesQuoteBanner";
 import { EmailAttachment } from "@/constants/emailTemplates";
 import { ColdClient, ColdClientStatus, OutreachChannel, AdminComment } from "@/types/outreach";
@@ -278,7 +277,6 @@ export default function Home() {
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState<boolean>(false);
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState<boolean>(false);
-  const [isPresentationOpen, setIsPresentationOpen] = useState<boolean>(false);
 
   const handleLoginSuccess = (user: UserAccount) => {
     try {
@@ -1496,7 +1494,6 @@ export default function Home() {
         setActiveTab={handleTabChange}
         onOpenAddModal={() => setIsAddModalOpen(true)}
         onOpenBulkModal={() => setIsBulkModalOpen(true)}
-        onOpenPresentation={() => setIsPresentationOpen(true)}
         onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
         onExportLeads={handleExportLeads}
         onLogout={handleLogout}
@@ -2702,14 +2699,6 @@ export default function Home() {
       <ChangePasswordModal
         isOpen={isChangePasswordModalOpen}
         onClose={() => setIsChangePasswordModalOpen(false)}
-        currentUser={currentUser}
-      />
-
-      {/* Thursday 20-Min Leadership Executive Presentation Modal */}
-      <ThursdayPresentationModal
-        isOpen={isPresentationOpen}
-        onClose={() => setIsPresentationOpen(false)}
-        leads={leads}
         currentUser={currentUser}
       />
 

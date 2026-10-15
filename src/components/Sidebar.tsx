@@ -55,7 +55,6 @@ interface SidebarProps {
   setActiveTab: (tab: NavTab) => void;
   onOpenAddModal: () => void;
   onOpenBulkModal: () => void;
-  onOpenPresentation?: () => void;
   onOpenChangePassword?: () => void;
   onExportLeads?: () => void;
   onLogout?: () => void;
@@ -70,7 +69,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   onOpenAddModal,
   onOpenBulkModal,
-  onOpenPresentation,
   onOpenChangePassword,
   onExportLeads,
   onLogout,
