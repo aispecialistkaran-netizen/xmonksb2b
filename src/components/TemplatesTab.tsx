@@ -212,7 +212,11 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
   }, [successToast]);
 
   // Open Upload / Edit Modal
-  const openUploadModal = (template?: TemplateItem) => {
+  const openUploadModal = (template?: TemplateItem, defaultCategory?: TemplateCategory) => {
+    const activeTabCategory: TemplateCategory =
+      defaultCategory ||
+      (selectedCategory !== "all" ? (selectedCategory as TemplateCategory) : "case_studies");
+
     if (template) {
       setEditingTemplate(template);
       setFormTitle(template.title);
@@ -229,9 +233,10 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
     } else {
       setEditingTemplate(null);
       setFormTitle("");
-      setFormCategory("financial_proposals");
+      setFormCategory(activeTabCategory);
       setFormDescription("");
-      setFormTags("Financial Proposals, Enterprise");
+      const categoryObj = TEMPLATE_CATEGORIES.find((c) => c.id === activeTabCategory);
+      setFormTags(categoryObj ? `${categoryObj.label}, Enterprise` : "Template, Enterprise");
       setFormVersion("v1.0");
       setFormFileName("");
       setFormFileSize("");
@@ -280,12 +285,36 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
             .replace(/[-_]+/g, " ")
             .trim();
 
+          // Intelligent category deduction based on filename/title
+          let detectedCategory: TemplateCategory = formCategory;
+          const lowerName = file.name.toLowerCase();
+          if (
+            lowerName.includes("case study") ||
+            lowerName.includes("case-study") ||
+            lowerName.includes("case_study") ||
+            lowerName.includes("casestudy")
+          ) {
+            detectedCategory = "case_studies";
+          } else if (
+            lowerName.includes("approach note") ||
+            lowerName.includes("approach-note") ||
+            lowerName.includes("approach_note") ||
+            lowerName.includes("approachnote")
+          ) {
+            detectedCategory = "approach_notes";
+          } else if (
+            lowerName.includes("induction") ||
+            lowerName.includes("brochure")
+          ) {
+            detectedCategory = "product_induction_materials";
+          }
+
           newItems.push({
             id: `q-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
             file,
             fileName: file.name,
             title: cleanTitle,
-            category: formCategory,
+            category: detectedCategory,
             fileSize: formatBytes(file.size),
             fileSizeBytes: file.size,
             fileType: extension,
@@ -1365,10 +1394,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                         value={formCategory}
                         onChange={(e) => {
                           const cat = e.target.value as TemplateCategory;
-                          setFormCategory(cat);
-                          if (queuedFiles.length <= 1) {
-                            applyCategoryToAll(cat);
-                          }
+                          applyCategoryToAll(cat);
                         }}
                         className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
                       >

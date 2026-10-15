@@ -412,20 +412,77 @@ export const INITIAL_TEMPLATES: TemplateItem[] = [
 ];
 
 /**
+ * Intelligent categorization auto-fix:
+ * Fixes any templates where the file name or title indicates a specific category
+ * (e.g. Case Study uploaded while on default Financial Proposals tab).
+ */
+export function autoFixTemplateCategory(item: TemplateItem): TemplateItem {
+  if (!item) return item;
+  const lowerTitle = (item.title || "").toLowerCase();
+  const lowerFileName = (item.fileName || "").toLowerCase();
+
+  const isCaseStudy =
+    lowerTitle.includes("case study") ||
+    lowerTitle.includes("case-study") ||
+    lowerTitle.includes("case_study") ||
+    lowerTitle.includes("casestudy") ||
+    lowerFileName.includes("case study") ||
+    lowerFileName.includes("case-study") ||
+    lowerFileName.includes("case_study") ||
+    lowerFileName.includes("casestudy");
+
+  if (isCaseStudy && item.category !== "case_studies") {
+    const fixed: TemplateItem = {
+      ...item,
+      category: "case_studies",
+      categoryLabel: "Case Studies",
+    };
+    if (typeof window !== "undefined") {
+      setDoc(doc(db, TEMPLATES_COLLECTION, item.id), { category: "case_studies", categoryLabel: "Case Studies" }, { merge: true }).catch(() => {});
+    }
+    return fixed;
+  }
+
+  const isApproachNote =
+    lowerTitle.includes("approach note") ||
+    lowerTitle.includes("approach-note") ||
+    lowerTitle.includes("approach_note") ||
+    lowerTitle.includes("approachnote") ||
+    lowerFileName.includes("approach note") ||
+    lowerFileName.includes("approach-note") ||
+    lowerFileName.includes("approach_note") ||
+    lowerFileName.includes("approachnote");
+
+  if (isApproachNote && item.category !== "approach_notes") {
+    const fixed: TemplateItem = {
+      ...item,
+      category: "approach_notes",
+      categoryLabel: "Approach Notes",
+    };
+    if (typeof window !== "undefined") {
+      setDoc(doc(db, TEMPLATES_COLLECTION, item.id), { category: "approach_notes", categoryLabel: "Approach Notes" }, { merge: true }).catch(() => {});
+    }
+    return fixed;
+  }
+
+  return item;
+}
+
+/**
  * Get templates from localStorage with fallback to INITIAL_TEMPLATES
  */
 export function getStoredTemplates(): TemplateItem[] {
   const deletedIds = getDeletedTemplateIds();
   if (typeof window === "undefined") {
-    return INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id));
+    return INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id)).map(autoFixTemplateCategory);
   }
   try {
     const raw = localStorage.getItem(TEMPLATES_STORAGE_KEY);
     if (raw) {
       let parsed: TemplateItem[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Filter out any deleted/deprecated templates
-        parsed = parsed.filter((t) => !deletedIds.has(t.id));
+        // Filter out any deleted/deprecated templates and auto-fix category anomalies
+        parsed = parsed.filter((t) => !deletedIds.has(t.id)).map(autoFixTemplateCategory);
 
         // Ensure all INITIAL_TEMPLATES (except deleted ones) are present and up to date
         INITIAL_TEMPLATES.forEach((seedTpl) => {
@@ -445,12 +502,12 @@ export function getStoredTemplates(): TemplateItem[] {
         return parsed;
       }
     }
-    const initialNonDeleted = INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id));
+    const initialNonDeleted = INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id)).map(autoFixTemplateCategory);
     saveLocalTemplates(initialNonDeleted);
     return initialNonDeleted;
   } catch (e) {
     console.warn("Failed to read templates from localStorage", e);
-    return INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id));
+    return INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id)).map(autoFixTemplateCategory);
   }
 }
 
@@ -493,7 +550,8 @@ export function subscribeToTemplates(callback: (templates: TemplateItem[]) => vo
               recordDeletedTemplateId(d.id);
               deleteDoc(doc(db, TEMPLATES_COLLECTION, d.id)).catch(() => {});
             } else {
-              list.push({ id: d.id, ...data } as TemplateItem);
+              const item = autoFixTemplateCategory({ id: d.id, ...data } as TemplateItem);
+              list.push(item);
             }
           });
           // Ensure seed templates are included UNLESS deleted by user
