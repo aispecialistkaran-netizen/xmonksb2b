@@ -265,8 +265,8 @@ export function generateDeliveryPortfolioCSV(records: DeliveryRecord[]): string 
     "Delivery Status",
     "Project Health",
     "Overall Completion %",
-    "Realized Inflow (INR)",
-    "Pending Balance (INR)",
+    "Total Invoiced (INR)",
+    "Unbilled Book (INR)",
     "Start Date",
     "Target Completion Date",
     "Closure Month",
@@ -274,14 +274,14 @@ export function generateDeliveryPortfolioCSV(records: DeliveryRecord[]): string 
   ];
 
   const rows = records.map((r) => {
-    let received = 0;
+    let invoiced = 0;
     (r.deliveryMilestones || []).forEach((m) => {
-      if (m.paymentStatus === "received") received += m.amount || 0;
+      if (m.paymentStatus === "invoiced" || m.paymentStatus === "received" || m.invoiceNumber) invoiced += m.amount || 0;
     });
     (r.paymentTerms || []).forEach((t) => {
-      if (t.paymentStatus === "received") received += t.amount || 0;
+      if (t.paymentStatus === "invoiced" || t.paymentStatus === "received" || t.invoiceNumber) invoiced += t.amount || 0;
     });
-    const pending = Math.max(0, (r.dealValue || 0) - received);
+    const unbilled = Math.max(0, (r.dealValue || 0) - invoiced);
 
     return [
       `"${r.id}"`,
@@ -294,8 +294,8 @@ export function generateDeliveryPortfolioCSV(records: DeliveryRecord[]): string 
       `"${r.deliveryStatus}"`,
       `"${r.projectHealth || "on_track"}"`,
       `${r.overallCompletionPercent || 0}%`,
-      received,
-      pending,
+      invoiced,
+      unbilled,
       `"${r.startDate || ""}"`,
       `"${r.targetCompletionDate || ""}"`,
       `"${r.closureMonth || ""}"`,
@@ -307,7 +307,7 @@ export function generateDeliveryPortfolioCSV(records: DeliveryRecord[]): string 
 }
 
 /**
- * Exports Lead Owner & Aging Receivables Matrix to CSV
+ * Exports Lead Owner & Invoicing Matrix to CSV
  */
 export function generateExecutiveMatrixCSV(
   records: DeliveryRecord[],
@@ -315,30 +315,34 @@ export function generateExecutiveMatrixCSV(
     owner: string;
     accountsCount: number;
     totalMoney: number;
-    receivedMoney: number;
+    invoicedMoney?: number;
+    receivedMoney?: number;
     remainingMoney: number;
-    realizationRate: number;
+    invoicingRate?: number;
+    realizationRate?: number;
   }>
 ): string {
   const headers = [
     "Lead Owner",
     "Accounts Managed",
-    "Total Contracted (INR)",
-    "Received Payments (INR)",
-    "Pending Receivables (INR)",
-    "Realization Rate (%)",
+    "Project Cost (INR)",
+    "Total Invoiced (INR)",
+    "Unbilled Book (INR)",
+    "Invoicing Rate (%)",
   ];
 
-  const rows = ownerList.map((o) =>
-    [
+  const rows = ownerList.map((o) => {
+    const inv = o.invoicedMoney ?? o.receivedMoney ?? 0;
+    const rate = o.invoicingRate ?? o.realizationRate ?? 0;
+    return [
       `"${o.owner}"`,
       o.accountsCount,
       o.totalMoney,
-      o.receivedMoney,
+      inv,
       o.remainingMoney,
-      `${o.realizationRate.toFixed(1)}%`,
-    ].join(",")
-  );
+      `${rate.toFixed(1)}%`,
+    ].join(",");
+  });
 
   return [headers.join(","), ...rows].join("\n");
 }

@@ -22,13 +22,21 @@ interface DeliveryInvoiceModalProps {
   record: DeliveryRecord;
   item: DeliveryMilestoneTranche | PaymentTermTranche | null;
   itemType: "milestone" | "payment_term";
-  onSaveUTR: (
+  onSaveUTR?: (
     itemId: string,
     itemType: "milestone" | "payment_term",
     invoiceNumber: string,
     utrNumber: string,
     bankReference: string,
     paymentDate: string
+  ) => void;
+  onSaveInvoice?: (
+    itemId: string,
+    itemType: "milestone" | "payment_term",
+    invoiceNumber: string,
+    invoiceDate: string,
+    clientGst?: string,
+    clientAddress?: string
   ) => void;
 }
 
@@ -39,6 +47,7 @@ export const DeliveryInvoiceModal: React.FC<DeliveryInvoiceModalProps> = ({
   item,
   itemType,
   onSaveUTR,
+  onSaveInvoice,
 }) => {
   if (!isOpen || !item) return null;
 
@@ -48,20 +57,12 @@ export const DeliveryInvoiceModal: React.FC<DeliveryInvoiceModalProps> = ({
 
   const [invoiceNumber, setInvoiceNumber] = useState(defaultInvoiceNo);
   const [invoiceDate, setInvoiceDate] = useState(
-    new Date().toISOString().split("T")[0]
+    item.invoiceDate || new Date().toISOString().split("T")[0]
   );
   const [gstType, setGstType] = useState<"cgst_sgst" | "igst">("cgst_sgst");
   const [clientGst, setClientGst] = useState(item.gstNumber || record.gstNumber || "07AAACX1234F1Z8");
   const [clientAddress, setClientAddress] = useState(
     record.clientBillingAddress || `${record.city || "Corporate Towers"}, India`
-  );
-
-  // UTR & Payment Proof Tracking Form
-  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
-  const [utrNumber, setUtrNumber] = useState(item.utrNumber || "");
-  const [bankRef, setBankRef] = useState(item.bankReference || "HDFC Bank Corporate Transfer");
-  const [paymentDate, setPaymentDate] = useState(
-    item.paymentReceivedDate || new Date().toISOString().split("T")[0]
   );
 
   const gstRate = 0.18;
@@ -77,11 +78,14 @@ export const DeliveryInvoiceModal: React.FC<DeliveryInvoiceModalProps> = ({
     window.print();
   };
 
-  const handleMarkPaymentReceived = (e: React.FormEvent) => {
+  const handleSaveInvoiceRecord = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!utrNumber.trim()) return;
-    onSaveUTR(item.id, itemType, invoiceNumber, utrNumber.trim(), bankRef, paymentDate);
-    setIsRecordingPayment(false);
+    if (!invoiceNumber.trim()) return;
+    if (onSaveInvoice) {
+      onSaveInvoice(item.id, itemType, invoiceNumber.trim(), invoiceDate, clientGst, clientAddress);
+    } else if (onSaveUTR) {
+      onSaveUTR(item.id, itemType, invoiceNumber.trim(), "", "", invoiceDate);
+    }
     onClose();
   };
 
@@ -96,10 +100,10 @@ export const DeliveryInvoiceModal: React.FC<DeliveryInvoiceModalProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-black text-slate-900 dark:text-white">
-                Tax Invoice & Payment Proof Management
+                Tax Invoice & Billing Management
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Generate official billing invoice or record UTR bank confirmation slip.
+                Generate official billing invoice and record invoice details.
               </p>
             </div>
           </div>
@@ -167,9 +171,9 @@ export const DeliveryInvoiceModal: React.FC<DeliveryInvoiceModalProps> = ({
                   />
                 </div>
                 <div>
-                  <span className="text-slate-400">Payment Status: </span>
-                  <strong className="text-emerald-600 dark:text-emerald-400 uppercase">
-                    {item.paymentStatus}
+                  <span className="text-slate-400">Invoicing Status: </span>
+                  <strong className="text-indigo-600 dark:text-indigo-400 uppercase">
+                    {item.invoiceNumber || item.paymentStatus === "invoiced" || item.paymentStatus === "received" ? "INVOICED" : "PENDING"}
                   </strong>
                 </div>
               </div>
@@ -318,57 +322,45 @@ export const DeliveryInvoiceModal: React.FC<DeliveryInvoiceModalProps> = ({
             </div>
           </div>
 
-          {/* Record UTR / Payment Proof Form (Hidden on Print) */}
+          {/* Record Invoice Details Form (Hidden on Print) */}
           <div className="p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 space-y-3 print:hidden">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <FileCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <Receipt className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                 <h4 className="font-black text-slate-900 dark:text-white text-xs">
-                  Record Received Payment & UTR Reference
+                  Invoice Status & Record
                 </h4>
               </div>
-              {item.utrNumber && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700">
-                  ✓ Recorded UTR: {item.utrNumber}
+              {(item.invoiceNumber || item.paymentStatus === "invoiced" || item.paymentStatus === "received") && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                  ✓ Recorded Invoice: {item.invoiceNumber || invoiceNumber}
                 </span>
               )}
             </div>
 
-            <form onSubmit={handleMarkPaymentReceived} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <form onSubmit={handleSaveInvoiceRecord} className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 block mb-1">
-                    UTR / Wire Reference Number *
+                    Invoice Number *
                   </label>
                   <input
                     type="text"
                     required
-                    value={utrNumber}
-                    onChange={(e) => setUtrNumber(e.target.value)}
-                    placeholder="e.g. HDFCN26098234891"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    placeholder="e.g. INV-XM-2026-1042"
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-mono font-bold text-slate-800 dark:text-slate-200 text-xs"
                   />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 block mb-1">
-                    Bank / Method Description
-                  </label>
-                  <input
-                    type="text"
-                    value={bankRef}
-                    onChange={(e) => setBankRef(e.target.value)}
-                    placeholder="e.g. ICICI Corporate NEFT"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-slate-500 block mb-1">
-                    Receipt Date
+                    Invoice Issue Date
                   </label>
                   <input
                     type="date"
-                    value={paymentDate}
-                    onChange={(e) => setPaymentDate(e.target.value)}
+                    value={invoiceDate}
+                    onChange={(e) => setInvoiceDate(e.target.value)}
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 text-xs"
                   />
                 </div>
@@ -377,10 +369,10 @@ export const DeliveryInvoiceModal: React.FC<DeliveryInvoiceModalProps> = ({
               <div className="flex justify-end space-x-2 pt-1">
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Mark as Received with UTR</span>
+                  <span>Save Invoice Details</span>
                 </button>
               </div>
             </form>

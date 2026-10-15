@@ -225,11 +225,12 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       });
     }
     const total = r.dealValue || 0;
-    const remaining = Math.max(0, total - received);
+    const remaining = Math.max(0, total - invoiced);
     const invoicedPending = Math.max(0, invoiced - received);
     const unbilled = Math.max(0, total - invoiced);
-    const realizationRate = total > 0 ? (received / total) * 100 : 0;
-    return { total, received, invoiced, invoicedPending, unbilled, remaining, realizationRate };
+    const realizationRate = total > 0 ? (invoiced / total) * 100 : 0;
+    const invoicedRate = total > 0 ? (invoiced / total) * 100 : 0;
+    return { total, received, invoiced, invoicedPending, unbilled, remaining, realizationRate, invoicedRate };
   };
 
   // Subscribe to real-time Delivery records
@@ -374,7 +375,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   // Overall KPI Metrics (Computed on accessible records: All for Admin, Own for Client Partner)
   const metrics = useMemo(() => {
     let totalPortfolio = 0;
-    let totalReceived = 0;
+    let totalInvoiced = 0;
     let activeCount = 0;
     let deliveredCount = 0;
 
@@ -387,19 +388,19 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       }
 
       const fin = getRecordFinancials(r);
-      totalReceived += fin.received;
+      totalInvoiced += fin.invoiced;
     });
 
-    const pendingPayment = Math.max(0, totalPortfolio - totalReceived);
-    const collectionRate = totalPortfolio > 0 ? (totalReceived / totalPortfolio) * 100 : 0;
+    const pendingInvoicing = Math.max(0, totalPortfolio - totalInvoiced);
+    const invoicingRate = totalPortfolio > 0 ? (totalInvoiced / totalPortfolio) * 100 : 0;
 
     return {
       totalPortfolio,
-      totalReceived,
-      pendingPayment,
+      totalInvoiced,
+      pendingInvoicing,
       activeCount,
       deliveredCount,
-      collectionRate,
+      invoicingRate,
       totalProjects: accessibleDeliveryRecords.length,
     };
   }, [accessibleDeliveryRecords]);
@@ -417,14 +418,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
         );
 
-      // Prioritize actual operational input dates (payment realization, completion signoff, or closure/start date)
+      // Prioritize actual operational input dates (invoice date, completion signoff, or closure/start date)
       // Never fall back to CRM database row creation date (createdAt)
-      const paymentDate =
+      const opDate =
+        r.paymentTerms?.find((t) => (t.paymentStatus === "invoiced" || t.paymentStatus === "received") && (t.invoiceDate || t.paymentReceivedDate))?.invoiceDate ||
+        r.deliveryMilestones?.find((m) => (m.paymentStatus === "invoiced" || m.paymentStatus === "received") && (m.invoiceDate || m.paymentReceivedDate))?.invoiceDate ||
         r.paymentTerms?.find((t) => t.paymentStatus === "received" && t.paymentReceivedDate)?.paymentReceivedDate ||
         r.deliveryMilestones?.find((m) => m.paymentStatus === "received" && m.paymentReceivedDate)?.paymentReceivedDate;
 
       const rawDate =
-        paymentDate ||
+        opDate ||
         r.clientSignoff?.signoffDate ||
         r.closureMonth ||
         rowMatchingLead?.closureMonth ||
@@ -444,7 +447,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     [allLeads, leads]
   );
 
-  // Aggregated Month-Wise Revenue & Inflow (Across all accessible records)
+  // Aggregated Month-Wise Revenue & Invoicing (Across all accessible records)
   const monthWiseRevenueList = useMemo(() => {
     const map = new Map<
       string,
@@ -453,7 +456,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         monthSortKey: string;
         accountsCount: number;
         totalMoney: number;
-        receivedMoney: number;
+        invoicedMoney: number;
         remainingMoney: number;
       }
     >();
@@ -467,7 +470,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           monthSortKey,
           accountsCount: 0,
           totalMoney: 0,
-          receivedMoney: 0,
+          invoicedMoney: 0,
           remainingMoney: 0,
         });
       }
@@ -476,14 +479,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       item.accountsCount += 1;
       const fin = getRecordFinancials(r);
       item.totalMoney += fin.total;
-      item.receivedMoney += fin.received;
-      item.remainingMoney += fin.remaining;
+      item.invoicedMoney += fin.invoiced;
+      item.remainingMoney += fin.unbilled;
     });
 
     return Array.from(map.values())
       .map((item) => ({
         ...item,
-        realizationRate: item.totalMoney > 0 ? (item.receivedMoney / item.totalMoney) * 100 : 0,
+        invoicingRate: item.totalMoney > 0 ? (item.invoicedMoney / item.totalMoney) * 100 : 0,
       }))
       .sort((a, b) => a.monthSortKey.localeCompare(b.monthSortKey));
   }, [accessibleDeliveryRecords, getRecordMonthInfo]);
@@ -553,7 +556,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         inProgressCount: number;
         deliveredCount: number;
         totalMoney: number;
-        receivedMoney: number;
+        invoicedMoney: number;
         remainingMoney: number;
         deliveryTenureCount: number;
         paymentTermsTenureCount: number;
@@ -582,7 +585,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           inProgressCount: 0,
           deliveredCount: 0,
           totalMoney: 0,
-          receivedMoney: 0,
+          invoicedMoney: 0,
           remainingMoney: 0,
           deliveryTenureCount: 0,
           paymentTermsTenureCount: 0,
@@ -602,14 +605,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
       const fin = getRecordFinancials(r);
       item.totalMoney += fin.total;
-      item.receivedMoney += fin.received;
-      item.remainingMoney += fin.remaining;
+      item.invoicedMoney += fin.invoiced;
+      item.remainingMoney += fin.unbilled;
     });
 
     return Array.from(map.values())
       .map((item) => ({
         ...item,
-        realizationRate: item.totalMoney > 0 ? (item.receivedMoney / item.totalMoney) * 100 : 0,
+        invoicingRate: item.totalMoney > 0 ? (item.invoicedMoney / item.totalMoney) * 100 : 0,
         avgDealSize: item.accountsCount > 0 ? item.totalMoney / item.accountsCount : 0,
       }))
       .sort((a, b) => b.totalMoney - a.totalMoney);
@@ -619,50 +622,50 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
   const ownerPerformanceTotals = useMemo(() => {
     let accounts = 0;
     let totalMoney = 0;
-    let receivedMoney = 0;
+    let invoicedMoney = 0;
     let remainingMoney = 0;
 
     ownerPerformanceList.forEach((item) => {
       accounts += item.accountsCount;
       totalMoney += item.totalMoney;
-      receivedMoney += item.receivedMoney;
+      invoicedMoney += item.invoicedMoney;
       remainingMoney += item.remainingMoney;
     });
 
-    const realizationRate = totalMoney > 0 ? (receivedMoney / totalMoney) * 100 : 0;
+    const invoicingRate = totalMoney > 0 ? (invoicedMoney / totalMoney) * 100 : 0;
     const avgDealSize = accounts > 0 ? totalMoney / accounts : 0;
 
-    return { accounts, totalMoney, receivedMoney, remainingMoney, realizationRate, avgDealSize };
+    return { accounts, totalMoney, invoicedMoney, remainingMoney, invoicingRate, avgDealSize };
   }, [ownerPerformanceList]);
 
   // Tenure Model Comparison Insights (scoped to month and owner filter if active)
   const tenureModelInsights = useMemo(() => {
     let deliveryModelAccounts = 0;
     let deliveryModelMoney = 0;
-    let deliveryModelReceived = 0;
+    let deliveryModelInvoiced = 0;
 
     let paymentTermsAccounts = 0;
     let paymentTermsMoney = 0;
-    let paymentTermsReceived = 0;
+    let paymentTermsInvoiced = 0;
 
     let contractAccounts = 0;
     let contractMoney = 0;
-    let contractReceived = 0;
+    let contractInvoiced = 0;
 
     realizationRecords.forEach((r) => {
       const fin = getRecordFinancials(r);
       if (r.tenureType === "delivery") {
         deliveryModelAccounts += 1;
         deliveryModelMoney += fin.total;
-        deliveryModelReceived += fin.received;
+        deliveryModelInvoiced += fin.invoiced;
       } else if (r.tenureType === "contract") {
         contractAccounts += 1;
         contractMoney += fin.total;
-        contractReceived += fin.received;
+        contractInvoiced += fin.invoiced;
       } else {
         paymentTermsAccounts += 1;
         paymentTermsMoney += fin.total;
-        paymentTermsReceived += fin.received;
+        paymentTermsInvoiced += fin.invoiced;
       }
     });
 
@@ -670,23 +673,23 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       delivery: {
         accounts: deliveryModelAccounts,
         totalMoney: deliveryModelMoney,
-        receivedMoney: deliveryModelReceived,
-        remainingMoney: Math.max(0, deliveryModelMoney - deliveryModelReceived),
-        rate: deliveryModelMoney > 0 ? (deliveryModelReceived / deliveryModelMoney) * 100 : 0,
+        invoicedMoney: deliveryModelInvoiced,
+        unbilledMoney: Math.max(0, deliveryModelMoney - deliveryModelInvoiced),
+        rate: deliveryModelMoney > 0 ? (deliveryModelInvoiced / deliveryModelMoney) * 100 : 0,
       },
       paymentTerms: {
         accounts: paymentTermsAccounts,
         totalMoney: paymentTermsMoney,
-        receivedMoney: paymentTermsReceived,
-        remainingMoney: Math.max(0, paymentTermsMoney - paymentTermsReceived),
-        rate: paymentTermsMoney > 0 ? (paymentTermsReceived / paymentTermsMoney) * 100 : 0,
+        invoicedMoney: paymentTermsInvoiced,
+        unbilledMoney: Math.max(0, paymentTermsMoney - paymentTermsInvoiced),
+        rate: paymentTermsMoney > 0 ? (paymentTermsInvoiced / paymentTermsMoney) * 100 : 0,
       },
       contract: {
         accounts: contractAccounts,
         totalMoney: contractMoney,
-        receivedMoney: contractReceived,
-        remainingMoney: Math.max(0, contractMoney - contractReceived),
-        rate: contractMoney > 0 ? (contractReceived / contractMoney) * 100 : 0,
+        invoicedMoney: contractInvoiced,
+        unbilledMoney: Math.max(0, contractMoney - contractInvoiced),
+        rate: contractMoney > 0 ? (contractInvoiced / contractMoney) * 100 : 0,
       },
     };
   }, [realizationRecords]);
@@ -836,14 +839,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     }
   };
 
-  // Save UTR Number and mark payment received
-  const handleSaveUTR = async (
+  // Save Invoice Details
+  const handleSaveInvoiceDetails = async (
     itemId: string,
     itemType: "milestone" | "payment_term",
     invoiceNumber: string,
-    utrNumber: string,
-    bankReference: string,
-    paymentDate: string
+    invoiceDate: string,
+    clientGst?: string,
+    clientAddress?: string
   ) => {
     if (!selectedRecord) return;
     try {
@@ -856,10 +859,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             ? {
                 ...m,
                 invoiceNumber,
-                utrNumber,
-                bankReference,
-                paymentReceivedDate: paymentDate,
-                paymentStatus: "received" as const,
+                invoiceDate: invoiceDate || m.invoiceDate || new Date().toISOString().split("T")[0],
+                paymentStatus: "invoiced" as const,
               }
             : m
         );
@@ -869,10 +870,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             ? {
                 ...t,
                 invoiceNumber,
-                utrNumber,
-                bankReference,
-                paymentReceivedDate: paymentDate,
-                paymentStatus: "received" as const,
+                invoiceDate: invoiceDate || t.invoiceDate || new Date().toISOString().split("T")[0],
+                paymentStatus: "invoiced" as const,
               }
             : t
         );
@@ -883,6 +882,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         {
           deliveryMilestones: updatedMilestones,
           paymentTerms: updatedTerms,
+          ...(clientGst ? { gstNumber: clientGst } : {}),
+          ...(clientAddress ? { clientBillingAddress: clientAddress } : {}),
         },
         currentUser?.name || "User"
       );
@@ -892,8 +893,20 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         );
       }
     } catch (e) {
-      console.error("Error recording UTR and payment", e);
+      console.error("Error saving invoice details", e);
     }
+  };
+
+  // Backwards compatibility alias for modal
+  const handleSaveUTR = async (
+    itemId: string,
+    itemType: "milestone" | "payment_term",
+    invoiceNumber: string,
+    _utrNumber: string,
+    _bankReference: string,
+    paymentDate: string
+  ) => {
+    await handleSaveInvoiceDetails(itemId, itemType, invoiceNumber, paymentDate);
   };
 
   // CSV Exporters
@@ -1411,14 +1424,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-xl border border-emerald-200/60 dark:border-emerald-900/50"
           >
             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">
-              Realized Payments
+              Total Invoiced
             </span>
             <div className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-1">
-              <SpringCounter value={metrics.totalReceived} isCurrency />
+              <SpringCounter value={metrics.totalInvoiced} isCurrency />
             </div>
             <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5 flex items-center space-x-1">
-              <CheckCircle2 className="w-3 h-3" />
-              <span><SpringCounter value={metrics.collectionRate} decimals={1} suffix="% collected" /></span>
+              <Receipt className="w-3 h-3" />
+              <span><SpringCounter value={metrics.invoicingRate} decimals={1} suffix="% invoiced" /></span>
             </div>
           </SpringWidget>
 
@@ -1427,13 +1440,13 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             className="p-3.5 bg-amber-50/60 dark:bg-amber-950/30 rounded-xl border border-amber-200/60 dark:border-amber-900/50"
           >
             <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">
-              Pending Receivable
+              Unbilled Book
             </span>
             <div className="text-lg font-black text-amber-700 dark:text-amber-300 mt-1">
-              <SpringCounter value={metrics.pendingPayment} isCurrency />
+              <SpringCounter value={metrics.pendingInvoicing} isCurrency />
             </div>
             <div className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
-              Linked to milestones & terms
+              Unbilled milestones & terms
             </div>
           </SpringWidget>
 
@@ -1498,8 +1511,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   {isAdmin
-                    ? "Comprehensive lead owner portfolio breakdown across all client partners, realized & pending cashflow, and month-wise revenue trajectory."
-                    : "Performance breakdown of your assigned accounts, realized payment inflow, and pending completion milestones."}
+                    ? "Comprehensive lead owner portfolio breakdown across all client partners, invoiced & unbilled portfolio, and month-wise revenue trajectory."
+                    : "Performance breakdown of your assigned accounts, invoiced milestones, and pending completion milestones."}
                 </p>
               </div>
             </div>
@@ -1594,7 +1607,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   }`}
                 >
                   <Receipt className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Realization Report</span>
+                  <span>Invoicing Report</span>
                   <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold">
                     {realizationRecords.length}
                   </span>
@@ -1729,12 +1742,12 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                     onSelectRecord={handleSelectRecord}
                     title={
                       selectedMonthFilter !== "all" && selectedOwnerFilter !== "all"
-                        ? `DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE (${selectedMonthFilter.toUpperCase()} • ${selectedOwnerFilter.toUpperCase()})`
+                        ? `DELIVERY ACCOUNTS & INVOICING TABLE (${selectedMonthFilter.toUpperCase()} • ${selectedOwnerFilter.toUpperCase()})`
                         : selectedMonthFilter !== "all"
-                        ? `DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE (${selectedMonthFilter.toUpperCase()})`
+                        ? `DELIVERY ACCOUNTS & INVOICING TABLE (${selectedMonthFilter.toUpperCase()})`
                         : selectedOwnerFilter !== "all"
-                        ? `DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE (${selectedOwnerFilter.toUpperCase()})`
-                        : "DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE"
+                        ? `DELIVERY ACCOUNTS & INVOICING TABLE (${selectedOwnerFilter.toUpperCase()})`
+                        : "DELIVERY ACCOUNTS & INVOICING TABLE"
                     }
                     activeRecordId={selectedRecordId}
                     selectedMonthFilter={selectedMonthFilter}
@@ -1770,10 +1783,10 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                           <th className="py-3 px-4">Lead Owner</th>
                           <th className="py-3 px-4">Accounts Under Owner</th>
-                          <th className="py-3 px-4">All Money (Contracted)</th>
-                          <th className="py-3 px-4">Received Payment</th>
-                          <th className="py-3 px-4">Remaining Receivable</th>
-                          <th className="py-3 px-4">Realization Rate</th>
+                          <th className="py-3 px-4">Project Cost</th>
+                          <th className="py-3 px-4">Total Invoiced</th>
+                          <th className="py-3 px-4">Unbilled Book</th>
+                          <th className="py-3 px-4">Invoicing Rate</th>
                           <th className="py-3 px-4">Avg Deal Size</th>
                           <th className="py-3 px-4">Tenure Mix</th>
                           <th className="py-3 px-4 text-right">Filter Projects</th>
@@ -1854,32 +1867,32 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                   </div>
                                 </td>
 
-                                {/* All Money (Contracted) */}
+                                {/* Project Cost */}
                                 <td className="py-3 px-4 font-black text-slate-900 dark:text-white whitespace-nowrap">
                                   {formatINR(item.totalMoney)}
                                 </td>
 
-                                {/* Received Payment */}
-                                <td className="py-3 px-4 font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                  {formatINR(item.receivedMoney)}
+                                {/* Total Invoiced */}
+                                <td className="py-3 px-4 font-black text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                                  {formatINR(item.invoicedMoney)}
                                 </td>
 
-                                {/* Remaining Receivable */}
+                                {/* Unbilled Book */}
                                 <td className="py-3 px-4 font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
                                   {formatINR(item.remainingMoney)}
                                 </td>
 
-                                {/* Realization Rate */}
+                                {/* Invoicing Rate */}
                                 <td className="py-3 px-4">
                                   <div className="flex items-center space-x-2">
                                     <div className="w-16 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden shrink-0">
                                       <div
-                                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
-                                        style={{ width: `${Math.min(100, item.realizationRate)}%` }}
+                                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-500"
+                                        style={{ width: `${Math.min(100, item.invoicingRate)}%` }}
                                       />
                                     </div>
                                     <span className="text-xs font-black text-slate-700 dark:text-slate-300">
-                                      {item.realizationRate.toFixed(0)}%
+                                      {item.invoicingRate.toFixed(0)}%
                                     </span>
                                   </div>
                                 </td>
@@ -1962,14 +1975,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             <td className="py-3 px-4 text-xs whitespace-nowrap">
                               {formatINR(ownerPerformanceTotals.totalMoney)}
                             </td>
-                            <td className="py-3 px-4 text-xs text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                              {formatINR(ownerPerformanceTotals.receivedMoney)}
+                            <td className="py-3 px-4 text-xs text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                              {formatINR(ownerPerformanceTotals.invoicedMoney)}
                             </td>
                             <td className="py-3 px-4 text-xs text-amber-600 dark:text-amber-400 whitespace-nowrap">
                               {formatINR(ownerPerformanceTotals.remainingMoney)}
                             </td>
                             <td className="py-3 px-4 text-xs">
-                              {ownerPerformanceTotals.realizationRate.toFixed(1)}% Realized
+                              {ownerPerformanceTotals.invoicingRate.toFixed(1)}% Invoiced
                             </td>
                             <td className="py-3 px-4 text-xs whitespace-nowrap">
                               {formatINR(ownerPerformanceTotals.avgDealSize)}
@@ -2046,27 +2059,27 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                   {formatINR(m.totalMoney)}
                                 </strong>
                               </div>
-                              <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                                <span>Received Inflow:</span>
-                                <strong>{formatINR(m.receivedMoney)}</strong>
+                              <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400">
+                                <span>Invoiced Amount:</span>
+                                <strong>{formatINR(m.invoicedMoney)}</strong>
                               </div>
                               <div className="flex justify-between items-center text-amber-600 dark:text-amber-400">
-                                <span>Remaining Receivable:</span>
+                                <span>Unbilled Book:</span>
                                 <strong>{formatINR(m.remainingMoney)}</strong>
                               </div>
                             </div>
 
                             <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
                               <div className="flex justify-between items-center text-[10px]">
-                                <span className="text-slate-400">Realization Rate</span>
+                                <span className="text-slate-400">Invoicing Rate</span>
                                 <strong className="text-slate-700 dark:text-slate-300">
-                                  {m.realizationRate.toFixed(0)}%
+                                  {m.invoicingRate.toFixed(0)}%
                                 </strong>
                               </div>
                               <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                 <div
                                   className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400"
-                                  style={{ width: `${Math.min(100, m.realizationRate)}%` }}
+                                  style={{ width: `${Math.min(100, m.invoicingRate)}%` }}
                                 />
                               </div>
                             </div>
@@ -2109,7 +2122,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 </div>
               )}
 
-              {/* TAB 3: PAYMENT INSIGHTS & TENURE MODELS */}
+              {/* TAB 3: INVOICING INSIGHTS & TENURE MODELS */}
               {headerAnalyticsTab === "payment_insights" && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Delivery Milestone Model Card */}
@@ -2136,15 +2149,15 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-emerald-600 block">Realized Inflow</span>
-                        <strong className="text-emerald-600 dark:text-emerald-400">
-                          {formatINR(tenureModelInsights.delivery.receivedMoney)}
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block">Invoiced Book</span>
+                        <strong className="text-indigo-600 dark:text-indigo-400">
+                          {formatINR(tenureModelInsights.delivery.invoicedMoney)}
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-amber-600 block">Pending Balance</span>
+                        <span className="text-[10px] text-amber-600 block">Unbilled Balance</span>
                         <strong className="text-amber-600 dark:text-amber-400">
-                          {formatINR(tenureModelInsights.delivery.remainingMoney)}
+                          {formatINR(tenureModelInsights.delivery.unbilledMoney)}
                         </strong>
                       </div>
                     </div>
@@ -2174,15 +2187,15 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-emerald-600 block">Realized Inflow</span>
-                        <strong className="text-emerald-600 dark:text-emerald-400">
-                          {formatINR(tenureModelInsights.paymentTerms.receivedMoney)}
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block">Invoiced Book</span>
+                        <strong className="text-indigo-600 dark:text-indigo-400">
+                          {formatINR(tenureModelInsights.paymentTerms.invoicedMoney)}
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-amber-600 block">Pending Balance</span>
+                        <span className="text-[10px] text-amber-600 block">Unbilled Balance</span>
                         <strong className="text-amber-600 dark:text-amber-400">
-                          {formatINR(tenureModelInsights.paymentTerms.remainingMoney)}
+                          {formatINR(tenureModelInsights.paymentTerms.unbilledMoney)}
                         </strong>
                       </div>
                     </div>
@@ -2212,15 +2225,15 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-emerald-600 block">Realized Inflow</span>
-                        <strong className="text-emerald-600 dark:text-emerald-400">
-                          {formatINR(tenureModelInsights.contract.receivedMoney)}
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block">Invoiced Book</span>
+                        <strong className="text-indigo-600 dark:text-indigo-400">
+                          {formatINR(tenureModelInsights.contract.invoicedMoney)}
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-amber-600 block">Pending Balance</span>
+                        <span className="text-[10px] text-amber-600 block">Unbilled Balance</span>
                         <strong className="text-amber-600 dark:text-amber-400">
-                          {formatINR(tenureModelInsights.contract.remainingMoney)}
+                          {formatINR(tenureModelInsights.contract.unbilledMoney)}
                         </strong>
                       </div>
                     </div>
@@ -2388,14 +2401,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             percent={selectedRecord.overallCompletionPercent}
             onPercentChange={handleUpdateCompletionPercent}
             title={`${selectedRecord.companyName} — Execution Progress`}
-            subtitle="Interactive delivery progress bar featuring currency banknote runway & value realization milestones"
+            subtitle="Interactive delivery progress bar featuring project milestone runway & deliverable completion"
             showControls={true}
             editable={true}
           />
 
           {/* Executive Financial Parameters Strip */}
           {selectedRecordStats && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-gradient-to-r from-slate-50 via-emerald-50/20 to-indigo-50/20 dark:from-slate-800/40 dark:via-emerald-950/20 dark:to-indigo-950/20 rounded-xl border border-emerald-200/50 dark:border-emerald-900/50 shadow-2xs">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-gradient-to-r from-slate-50 via-emerald-50/20 to-indigo-50/20 dark:from-slate-800/40 dark:via-emerald-950/20 dark:to-indigo-950/20 rounded-xl border border-indigo-200/50 dark:border-indigo-900/50 shadow-2xs">
               <div className="space-y-0.5">
                 <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
                   Contract Value
@@ -2407,26 +2420,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               </div>
 
               <div className="space-y-0.5">
-                <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 block tracking-wider">
-                  Cash Collected
-                </span>
-                <div className="text-base font-black text-emerald-700 dark:text-emerald-300">
-                  {formatINR(selectedRecordStats.totalReceivedAmount)}
-                </div>
-                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                  {selectedRecordStats.percentReceived}% Realized in Bank
-                </span>
-              </div>
-
-              <div className="space-y-0.5">
                 <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block tracking-wider">
-                  Invoiced (Awaiting Bank)
+                  Total Invoiced
                 </span>
                 <div className="text-base font-black text-indigo-700 dark:text-indigo-300">
-                  {formatINR(selectedRecordStats.invoicedPendingAmount)}
+                  {formatINR(selectedRecordStats.totalInvoicedAmount)}
                 </div>
-                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
-                  {selectedRecordStats.invoicedPendingAmount > 0 ? "Billed / Pending Clearance" : "0 Pending Invoices"}
+                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                  {selectedRecordStats.percentInvoiced}% Invoiced of Contract
                 </span>
               </div>
 
@@ -2438,7 +2439,19 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   {formatINR(selectedRecordStats.unbilledAmount)}
                 </div>
                 <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                  {formatINR(selectedRecordStats.pendingAmount)} Total Outstanding
+                  {formatINR(selectedRecordStats.unbilledAmount)} Remaining to Invoice
+                </span>
+              </div>
+
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 block tracking-wider">
+                  Milestone Progress
+                </span>
+                <div className="text-base font-black text-emerald-700 dark:text-emerald-300">
+                  {selectedRecord.overallCompletionPercent}% Delivered
+                </div>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                  {selectedRecordStats.completedMilestonesCount} Milestones Completed
                 </span>
               </div>
             </div>
@@ -2773,15 +2786,19 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             {selectedRecord.tenureType === "contract" && (() => {
               const mAllocPct = (selectedRecord.deliveryMilestones || []).reduce((sum, m) => sum + (m.paymentPercent || 0), 0);
               const mAllocAmt = (selectedRecord.deliveryMilestones || []).reduce((sum, m) => sum + (m.amount || 0), 0);
-              const mRecAmt = (selectedRecord.deliveryMilestones || []).filter(m => m.paymentStatus === "received").reduce((sum, m) => sum + (m.amount || 0), 0);
+              const mInvAmt = (selectedRecord.deliveryMilestones || [])
+                .filter(m => m.paymentStatus === "invoiced" || m.paymentStatus === "received" || Boolean(m.invoiceNumber))
+                .reduce((sum, m) => sum + (m.amount || 0), 0);
 
               const tAllocPct = (selectedRecord.paymentTerms || []).reduce((sum, t) => sum + (t.paymentPercent || 0), 0);
               const tAllocAmt = (selectedRecord.paymentTerms || []).reduce((sum, t) => sum + (t.amount || 0), 0);
-              const tRecAmt = (selectedRecord.paymentTerms || []).filter(t => t.paymentStatus === "received").reduce((sum, t) => sum + (t.amount || 0), 0);
+              const tInvAmt = (selectedRecord.paymentTerms || [])
+                .filter(t => t.paymentStatus === "invoiced" || t.paymentStatus === "received" || Boolean(t.invoiceNumber))
+                .reduce((sum, t) => sum + (t.amount || 0), 0);
 
               const totalAllocPct = mAllocPct + tAllocPct;
-              const totalRecAmt = mRecAmt + tRecAmt;
-              const totalRecPct = selectedRecord.dealValue > 0 ? Math.round((totalRecAmt / selectedRecord.dealValue) * 100) : 0;
+              const totalInvAmt = mInvAmt + tInvAmt;
+              const totalInvPct = selectedRecord.dealValue > 0 ? Math.round((totalInvAmt / selectedRecord.dealValue) * 100) : 0;
 
               return (
                 <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-indigo-500/10 border-2 border-emerald-400/40 dark:border-emerald-600/40 space-y-4 shadow-sm animate-fadeIn">
@@ -2854,8 +2871,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <strong className="text-slate-900 dark:text-white font-black">{formatINR(tAllocAmt)}</strong>
                         <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">{tAllocPct}% of deal</span>
                       </div>
-                      <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                        Received: {formatINR(tRecAmt)}
+                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                        Invoiced: {formatINR(tInvAmt)}
                       </div>
                     </div>
 
@@ -2867,18 +2884,18 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <strong className="text-slate-900 dark:text-white font-black">{formatINR(mAllocAmt)}</strong>
                         <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">{mAllocPct}% of deal</span>
                       </div>
-                      <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                        Received: {formatINR(mRecAmt)}
+                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                        Invoiced: {formatINR(mInvAmt)}
                       </div>
                     </div>
 
                     <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-emerald-300/80 dark:border-emerald-700/80 space-y-0.5 bg-emerald-50/40 dark:bg-emerald-950/20">
                       <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold block uppercase tracking-wider">
-                        Combined Contract Realization
+                        Combined Contract Invoiced
                       </span>
                       <div className="flex items-center justify-between">
-                        <strong className="text-emerald-700 dark:text-emerald-300 font-black text-sm">{formatINR(totalRecAmt)}</strong>
-                        <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">{totalRecPct}%</span>
+                        <strong className="text-emerald-700 dark:text-emerald-300 font-black text-sm">{formatINR(totalInvAmt)}</strong>
+                        <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">{totalInvPct}%</span>
                       </div>
                       <div className="text-[10px] text-slate-500">
                         Total Allocation: {totalAllocPct}% (Target: 100%)
@@ -2923,12 +2940,12 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         <th className="py-2.5 px-3">Milestone Scope / Title</th>
                         <th className="py-2.5 px-3">Project Completion (%)</th>
-                        <th className="py-2.5 px-3">Payment Release (%)</th>
+                        <th className="py-2.5 px-3">Invoicing Share (%)</th>
                         <th className="py-2.5 px-3">Amount (INR)</th>
                         <th className="py-2.5 px-3">Target / Due Date</th>
                         <th className="py-2.5 px-3">Work Status</th>
-                        <th className="py-2.5 px-3">Payment Status</th>
-                        <th className="py-2.5 px-3">Payment Received Date</th>
+                        <th className="py-2.5 px-3">Invoicing Status</th>
+                        <th className="py-2.5 px-3">Invoice Date & Ref</th>
                         <th className="py-2.5 px-3 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -3024,15 +3041,13 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                           <td className="py-3 px-3">
                             <div className="flex items-center space-x-1.5">
                               <select
-                                value={m.paymentStatus}
+                                value={m.paymentStatus === "received" ? "invoiced" : m.paymentStatus}
                                 onChange={(e) => {
                                   const newStatus = e.target.value as TranchePaymentStatus;
                                   handleUpdateMilestone(m.id, { paymentStatus: newStatus });
                                 }}
                                 className={`px-2 py-1 text-xs font-bold rounded-lg border ${
-                                  m.paymentStatus === "received"
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
-                                    : m.paymentStatus === "invoiced"
+                                  m.paymentStatus === "invoiced" || m.paymentStatus === "received"
                                     ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800"
                                     : m.paymentStatus === "overdue"
                                     ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
@@ -3041,7 +3056,6 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                               >
                                 <option value="pending">⏳ Pending</option>
                                 <option value="invoiced">📄 Invoiced</option>
-                                <option value="received">💰 Received</option>
                                 <option value="overdue">⚠️ Overdue</option>
                               </select>
 
@@ -3056,61 +3070,43 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                   })
                                 }
                                 className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-lg transition shrink-0 cursor-pointer"
-                                title="One-Click Proforma/Tax Invoice Generator & UTR Proof Tracker"
+                                title="One-Click Tax Invoice Generator & Record"
                               >
                                 <Receipt className="w-3.5 h-3.5" />
                               </button>
                             </div>
-
-                            {m.utrNumber && (
-                              <div
-                                className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono mt-1 flex items-center space-x-1"
-                                title={`Bank UTR: ${m.utrNumber}`}
-                              >
-                                <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
-                                <span className="truncate">UTR: {m.utrNumber}</span>
-                              </div>
-                            )}
                           </td>
 
-                          {/* Payment Received Date & Clearance Column */}
+                          {/* Invoice Date & Reference Column */}
                           <td className="py-3 px-3 min-w-[150px]">
-                            {m.paymentStatus === "received" ? (
+                            {m.paymentStatus === "invoiced" || m.paymentStatus === "received" || m.invoiceNumber ? (
                               <div className="flex items-center space-x-1.5">
                                 <input
                                   type="date"
-                                  value={m.paymentReceivedDate || m.targetDate || ""}
+                                  value={m.invoiceDate || m.targetDate || ""}
                                   onChange={(e) => {
                                     handleUpdateMilestone(m.id, {
-                                      paymentReceivedDate: e.target.value,
-                                      paymentStatus: "received",
+                                      invoiceDate: e.target.value,
+                                      paymentStatus: "invoiced",
                                     });
                                   }}
-                                  className="px-2 py-1 text-xs font-bold bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 rounded-lg text-emerald-800 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
-                                  title="Payment Received Date (Cleared into Bank)"
+                                  className="px-2 py-1 text-xs font-bold bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-300 dark:border-indigo-700 rounded-lg text-indigo-800 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
+                                  title="Invoice Issue Date"
                                 />
-                                <span title="Funds Received & Cleared">
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                                </span>
-                              </div>
-                            ) : m.paymentStatus === "invoiced" ? (
-                              <div className="flex items-center space-x-1.5">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                  Awaiting Bank
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateMilestone(m.id, {
-                                      paymentStatus: "received",
-                                      paymentReceivedDate: m.targetDate || new Date().toISOString().split("T")[0],
-                                    })
-                                  }
-                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
-                                  title="Mark milestone payment as received"
-                                >
-                                  💰 Mark Received
-                                </button>
+                                {m.invoiceNumber ? (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700 shrink-0"
+                                    title={`Invoice Ref: ${m.invoiceNumber}`}
+                                  >
+                                    {m.invoiceNumber}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 shrink-0"
+                                  >
+                                    Invoiced
+                                  </span>
+                                )}
                               </div>
                             ) : m.paymentStatus === "overdue" ? (
                               <div className="flex items-center space-x-1.5">
@@ -3121,23 +3117,29 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                   type="button"
                                   onClick={() =>
                                     handleUpdateMilestone(m.id, {
-                                      paymentStatus: "received",
-                                      paymentReceivedDate: m.targetDate || new Date().toISOString().split("T")[0],
+                                      paymentStatus: "invoiced",
+                                      invoiceDate: m.targetDate || new Date().toISOString().split("T")[0],
                                     })
                                   }
-                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                  title="Mark milestone as invoiced"
                                 >
-                                  💰 Mark Received
+                                  📄 Invoice
                                 </button>
                               </div>
                             ) : (
                               <div className="flex items-center space-x-1.5">
                                 <span className="text-[11px] text-slate-400 italic">
-                                  Scheduled
+                                  Unbilled
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdateMilestone(m.id, { paymentStatus: "invoiced" })}
+                                  onClick={() =>
+                                    handleUpdateMilestone(m.id, {
+                                      paymentStatus: "invoiced",
+                                      invoiceDate: m.targetDate || new Date().toISOString().split("T")[0],
+                                    })
+                                  }
                                   className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-md transition cursor-pointer"
                                   title="Mark milestone as invoiced"
                                 >
@@ -3222,11 +3224,11 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         <th className="py-2.5 px-3">Term / Installment Label</th>
                         <th className="py-2.5 px-3">Timeframe / Schedule</th>
-                        <th className="py-2.5 px-3">Payment (%)</th>
+                        <th className="py-2.5 px-3">Invoicing Share (%)</th>
                         <th className="py-2.5 px-3">Amount (INR)</th>
                         <th className="py-2.5 px-3">Schedule / Due Date</th>
-                        <th className="py-2.5 px-3">Payment Status</th>
-                        <th className="py-2.5 px-3">Payment Received Date</th>
+                        <th className="py-2.5 px-3">Invoicing Status</th>
+                        <th className="py-2.5 px-3">Invoice Date & Ref</th>
                         <th className="py-2.5 px-3 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -3305,19 +3307,17 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             />
                           </td>
 
-                          {/* Payment Status Dropdown */}
+                          {/* Invoicing Status Dropdown */}
                           <td className="py-3 px-3">
                             <div className="flex items-center space-x-1.5">
                               <select
-                                value={t.paymentStatus}
+                                value={t.paymentStatus === "received" ? "invoiced" : t.paymentStatus}
                                 onChange={(e) => {
                                   const newStatus = e.target.value as TranchePaymentStatus;
                                   handleUpdatePaymentTerm(t.id, { paymentStatus: newStatus });
                                 }}
                                 className={`px-2 py-1 text-xs font-bold rounded-lg border ${
-                                  t.paymentStatus === "received"
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
-                                    : t.paymentStatus === "invoiced"
+                                  t.paymentStatus === "invoiced" || t.paymentStatus === "received"
                                     ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800"
                                     : t.paymentStatus === "overdue"
                                     ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
@@ -3326,7 +3326,6 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                               >
                                 <option value="pending">⏳ Pending</option>
                                 <option value="invoiced">📄 Invoiced</option>
-                                <option value="received">💰 Received</option>
                                 <option value="overdue">⚠️ Overdue</option>
                               </select>
 
@@ -3341,61 +3340,43 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                   })
                                 }
                                 className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-lg transition shrink-0 cursor-pointer"
-                                title="One-Click Proforma/Tax Invoice Generator & UTR Proof Tracker"
+                                title="One-Click Tax Invoice Generator & Record"
                               >
                                 <Receipt className="w-3.5 h-3.5" />
                               </button>
                             </div>
-
-                            {t.utrNumber && (
-                              <div
-                                className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono mt-1 flex items-center space-x-1"
-                                title={`Bank UTR: ${t.utrNumber}`}
-                              >
-                                <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
-                                <span className="truncate">UTR: {t.utrNumber}</span>
-                              </div>
-                            )}
                           </td>
 
-                          {/* Payment Received Date & Clearance Column */}
+                          {/* Invoice Date & Reference Column */}
                           <td className="py-3 px-3 min-w-[150px]">
-                            {t.paymentStatus === "received" ? (
+                            {t.paymentStatus === "invoiced" || t.paymentStatus === "received" || t.invoiceNumber ? (
                               <div className="flex items-center space-x-1.5">
                                 <input
                                   type="date"
-                                  value={t.paymentReceivedDate || t.dueDate || ""}
+                                  value={t.invoiceDate || t.dueDate || ""}
                                   onChange={(e) => {
                                     handleUpdatePaymentTerm(t.id, {
-                                      paymentReceivedDate: e.target.value,
-                                      paymentStatus: "received",
+                                      invoiceDate: e.target.value,
+                                      paymentStatus: "invoiced",
                                     });
                                   }}
-                                  className="px-2 py-1 text-xs font-bold bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 rounded-lg text-emerald-800 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
-                                  title="Payment Received Date (Cleared into Bank)"
+                                  className="px-2 py-1 text-xs font-bold bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-300 dark:border-indigo-700 rounded-lg text-indigo-800 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
+                                  title="Invoice Issue Date"
                                 />
-                                <span title="Funds Received & Cleared">
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                                </span>
-                              </div>
-                            ) : t.paymentStatus === "invoiced" ? (
-                              <div className="flex items-center space-x-1.5">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                  Awaiting Bank
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdatePaymentTerm(t.id, {
-                                      paymentStatus: "received",
-                                      paymentReceivedDate: t.dueDate || new Date().toISOString().split("T")[0],
-                                    })
-                                  }
-                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
-                                  title="Mark payment as received into bank"
-                                >
-                                  💰 Mark Received
-                                </button>
+                                {t.invoiceNumber ? (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700 shrink-0"
+                                    title={`Invoice Ref: ${t.invoiceNumber}`}
+                                  >
+                                    {t.invoiceNumber}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 shrink-0"
+                                  >
+                                    Invoiced
+                                  </span>
+                                )}
                               </div>
                             ) : t.paymentStatus === "overdue" ? (
                               <div className="flex items-center space-x-1.5">
@@ -3406,23 +3387,29 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                   type="button"
                                   onClick={() =>
                                     handleUpdatePaymentTerm(t.id, {
-                                      paymentStatus: "received",
-                                      paymentReceivedDate: t.dueDate || new Date().toISOString().split("T")[0],
+                                      paymentStatus: "invoiced",
+                                      invoiceDate: t.dueDate || new Date().toISOString().split("T")[0],
                                     })
                                   }
-                                  className="px-2 py-0.5 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-md shadow-2xs transition cursor-pointer"
+                                  title="Mark term as invoiced"
                                 >
-                                  💰 Mark Received
+                                  📄 Invoice
                                 </button>
                               </div>
                             ) : (
                               <div className="flex items-center space-x-1.5">
                                 <span className="text-[11px] text-slate-400 italic">
-                                  Scheduled
+                                  Unbilled
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdatePaymentTerm(t.id, { paymentStatus: "invoiced" })}
+                                  onClick={() =>
+                                    handleUpdatePaymentTerm(t.id, {
+                                      paymentStatus: "invoiced",
+                                      invoiceDate: t.dueDate || new Date().toISOString().split("T")[0],
+                                    })
+                                  }
                                   className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-md transition cursor-pointer"
                                   title="Mark term as invoiced"
                                 >
@@ -3474,13 +3461,13 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             )}
 
             {/* ========================================================= */}
-            {/* SUB-SECTION C: PAYMENTS RECEIVED LEDGER (PROJECT-SPECIFIC) */}
-            {/* Tabular table of all received payments, including date & amount */}
+            {/* SUB-SECTION C: TAX INVOICING & BILLING LEDGER (PROJECT-SPECIFIC) */}
+            {/* Tabular table of all invoiced tranches, dates & invoice numbers */}
             {/* ========================================================= */}
             {(() => {
-              // Extract all received milestone tranches
-              const receivedMilestones = (selectedRecord.deliveryMilestones || [])
-                .filter((m) => m.paymentStatus === "received")
+              // Extract all invoiced milestone tranches
+              const invoicedMilestones = (selectedRecord.deliveryMilestones || [])
+                .filter((m) => m.paymentStatus === "invoiced" || m.paymentStatus === "received" || !!m.invoiceNumber)
                 .map((m) => ({
                   id: m.id,
                   title: m.milestoneTitle,
@@ -3488,17 +3475,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   typeBadge: "Milestone",
                   amount: m.amount || 0,
                   percent: m.paymentPercent || 0,
-                  dateReceived: m.paymentReceivedDate || m.completionDate || m.targetDate || "",
+                  invoiceDate: m.invoiceDate || m.completionDate || m.targetDate || "",
                   invoiceNumber: m.invoiceNumber,
-                  invoiceDate: m.invoiceDate,
-                  utrNumber: m.utrNumber,
-                  bankReference: m.bankReference,
                   rawItem: m,
                 }));
 
-              // Extract all received payment terms tranches
-              const receivedTerms = (selectedRecord.paymentTerms || [])
-                .filter((t) => t.paymentStatus === "received")
+              // Extract all invoiced payment terms tranches
+              const invoicedTerms = (selectedRecord.paymentTerms || [])
+                .filter((t) => t.paymentStatus === "invoiced" || t.paymentStatus === "received" || !!t.invoiceNumber)
                 .map((t) => ({
                   id: t.id,
                   title: t.termLabel,
@@ -3506,60 +3490,53 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   typeBadge: t.isAdvance ? "Advance Term" : "Scheduled Term",
                   amount: t.amount || 0,
                   percent: t.paymentPercent || 0,
-                  dateReceived: t.paymentReceivedDate || t.dueDate || "",
+                  invoiceDate: t.invoiceDate || t.dueDate || "",
                   invoiceNumber: t.invoiceNumber,
-                  invoiceDate: t.invoiceDate,
-                  utrNumber: t.utrNumber,
-                  bankReference: t.bankReference,
                   rawItem: t,
                 }));
 
               // Scoped to the active project tenure model
-              const receivedPayments =
+              const invoicedPayments =
                 selectedRecord.tenureType === "delivery"
-                  ? receivedMilestones
+                  ? invoicedMilestones
                   : selectedRecord.tenureType === "payment_terms"
-                  ? receivedTerms
-                  : [...receivedMilestones, ...receivedTerms];
+                  ? invoicedTerms
+                  : [...invoicedMilestones, ...invoicedTerms];
 
-              const totalReceived = receivedPayments.reduce((sum, p) => sum + p.amount, 0);
-              const totalPercent = receivedPayments.reduce((sum, p) => sum + p.percent, 0);
-              const pendingAmount = Math.max(0, (selectedRecord.dealValue || 0) - totalReceived);
-              const realizationRate =
+              const totalInvoiced = invoicedPayments.reduce((sum, p) => sum + p.amount, 0);
+              const totalPercent = invoicedPayments.reduce((sum, p) => sum + p.percent, 0);
+              const unbilledAmount = Math.max(0, (selectedRecord.dealValue || 0) - totalInvoiced);
+              const invoicingRate =
                 selectedRecord.dealValue > 0
-                  ? Math.round((totalReceived / selectedRecord.dealValue) * 100)
+                  ? Math.round((totalInvoiced / selectedRecord.dealValue) * 100)
                   : 0;
 
-              // Extract unreceived tranches so user can easily 1-click mark as received
-              const unreceivedMilestones = (selectedRecord.deliveryMilestones || []).filter(
-                (m) => m.paymentStatus !== "received"
+              // Extract uninvoiced tranches so user can easily 1-click invoice
+              const uninvoicedMilestones = (selectedRecord.deliveryMilestones || []).filter(
+                (m) => m.paymentStatus !== "invoiced" && m.paymentStatus !== "received" && !m.invoiceNumber
               );
-              const unreceivedTerms = (selectedRecord.paymentTerms || []).filter(
-                (t) => t.paymentStatus !== "received"
+              const uninvoicedTerms = (selectedRecord.paymentTerms || []).filter(
+                (t) => t.paymentStatus !== "invoiced" && t.paymentStatus !== "received" && !t.invoiceNumber
               );
 
-              const handleExportReceiptsCSV = () => {
+              const handleExportInvoicesCSV = () => {
                 const headers = [
                   "Client / Project",
+                  "Invoice Number",
                   "Tranche Description",
                   "Category",
-                  "Date Received",
+                  "Invoice Issue Date",
                   "Amount (INR)",
                   "Share of Deal (%)",
-                  "UTR Number",
-                  "Bank Reference",
-                  "Invoice Number",
                 ];
-                const rows = receivedPayments.map((p) => [
+                const rows = invoicedPayments.map((p) => [
                   `"${selectedRecord.companyName.replace(/"/g, '""')}"`,
+                  `"${(p.invoiceNumber || "INVOICED").replace(/"/g, '""')}"`,
                   `"${p.title.replace(/"/g, '""')}"`,
                   `"${p.typeBadge}"`,
-                  `"${p.dateReceived || "N/A"}"`,
+                  `"${p.invoiceDate || "N/A"}"`,
                   p.amount,
                   `${p.percent}%`,
-                  `"${(p.utrNumber || "").replace(/"/g, '""')}"`,
-                  `"${(p.bankReference || "").replace(/"/g, '""')}"`,
-                  `"${(p.invoiceNumber || "").replace(/"/g, '""')}"`,
                 ]);
                 const csvContent =
                   "data:text/csv;charset=utf-8," +
@@ -3569,7 +3546,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 link.setAttribute("href", encodedUri);
                 link.setAttribute(
                   "download",
-                  `Payment_Receipts_${selectedRecord.companyName.replace(/\s+/g, "_")}.csv`
+                  `Invoices_${selectedRecord.companyName.replace(/\s+/g, "_")}.csv`
                 );
                 document.body.appendChild(link);
                 link.click();
@@ -3577,43 +3554,43 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               };
 
               return (
-                <div className="mt-8 bg-white dark:bg-slate-900 border-2 border-emerald-300/80 dark:border-emerald-800/80 rounded-2xl p-5 sm:p-6 space-y-5 shadow-sm">
+                <div className="mt-8 bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-900 rounded-2xl p-5 sm:p-6 space-y-5 shadow-sm">
                   {/* Ledger Header & Quick Financial Summary */}
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="p-2 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 rounded-xl">
+                        <span className="p-2 bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 rounded-xl">
                           <Receipt className="w-5 h-5" />
                         </span>
                         <h4 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
-                          <span>Payments Received & Realization Ledger</span>
+                          <span>Tax Invoicing & Billing Ledger</span>
                         </h4>
-                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                          {realizationRate}% Realized
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700">
+                          {invoicingRate}% Invoiced
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Tabular record of cleared payments for <strong className="text-slate-800 dark:text-slate-200">{selectedRecord.companyName}</strong>, detailing transaction dates, received amounts (₹), UTR bank references, and tax invoices.
+                        Record of tax invoices raised and scheduled tranches for <strong className="text-slate-800 dark:text-slate-200">{selectedRecord.companyName}</strong>, detailing invoice dates, invoiced amounts (₹), and invoice references.
                       </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      {receivedPayments.length > 0 && (
+                      {invoicedPayments.length > 0 && (
                         <button
                           type="button"
-                          onClick={handleExportReceiptsCSV}
+                          onClick={handleExportInvoicesCSV}
                           className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
-                          title="Download payment receipts as CSV"
+                          title="Download invoices ledger as CSV"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          <span>Export Receipts (CSV)</span>
+                          <span>Export Invoices (CSV)</span>
                         </button>
                       )}
                     </div>
                   </div>
 
                   {/* Financial Metrics Strip for this Project */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                         Total Deal Value
@@ -3624,57 +3601,45 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       <span className="text-[10px] text-slate-500">Contracted deal</span>
                     </div>
 
-                    <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-900">
-                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
-                        Cash Collected
-                      </span>
-                      <div className="text-base font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
-                        {formatINR(totalReceived)}
-                      </div>
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                        {totalPercent}% Realized in Bank
-                      </span>
-                    </div>
-
                     <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-xl border border-indigo-200 dark:border-indigo-900">
                       <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
-                        Invoiced (Awaiting Bank)
+                        Total Invoiced
                       </span>
                       <div className="text-base font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
-                        {formatINR(selectedRecordStats?.invoicedPendingAmount || 0)}
+                        {formatINR(totalInvoiced)}
                       </div>
-                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
-                        {(selectedRecordStats?.invoicedPendingAmount || 0) > 0 ? "Billed / In Transit" : "0 Awaiting Payment"}
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                        {totalPercent}% Invoiced of Deal
                       </span>
                     </div>
 
                     <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900">
                       <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
-                        Unbilled Scheduled
+                        Unbilled Book
                       </span>
                       <div className="text-base font-black text-amber-700 dark:text-amber-300 mt-0.5">
-                        {formatINR(selectedRecordStats?.unbilledAmount || 0)}
+                        {formatINR(unbilledAmount)}
                       </div>
                       <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                        {formatINR(pendingAmount)} Total Balance
+                        Remaining to Invoice
                       </span>
                     </div>
 
-                    <div className="p-3 bg-cyan-50/60 dark:bg-cyan-950/20 rounded-xl border border-cyan-200 dark:border-cyan-900">
-                      <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wider block">
-                        Cleared Receipts
+                    <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-900">
+                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
+                        Invoices Raised
                       </span>
-                      <div className="text-base font-black text-cyan-700 dark:text-cyan-300 mt-0.5">
-                        {receivedPayments.length} Receipts
+                      <div className="text-base font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                        {invoicedPayments.length} Tranche{invoicedPayments.length === 1 ? "" : "s"}
                       </div>
-                      <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">
-                        Status: {totalPercent >= 100 ? "Fully Paid" : "In Progress"}
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                        Status: {totalPercent >= 100 ? "Fully Invoiced" : "Invoicing Active"}
                       </span>
                     </div>
                   </div>
 
-                  {/* Tabular Table of Received Payments */}
-                  {receivedPayments.length > 0 ? (
+                  {/* Tabular Table of Invoiced Items */}
+                  {invoicedPayments.length > 0 ? (
                     <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
@@ -3682,23 +3647,22 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                             <th className="py-3 px-3.5 w-12 text-center">#</th>
                             <th className="py-3 px-3.5">Tranche / Milestone</th>
                             <th className="py-3 px-3.5">Category</th>
-                            <th className="py-3 px-3.5 min-w-[170px]">Date Received</th>
+                            <th className="py-3 px-3.5 min-w-[170px]">Invoice Issue Date</th>
                             <th className="py-3 px-3.5">Amount (₹ INR)</th>
                             <th className="py-3 px-3.5 text-center">Share</th>
-                            <th className="py-3 px-3.5">UTR / Bank Reference</th>
                             <th className="py-3 px-3.5">Invoice Ref</th>
                             <th className="py-3 px-3.5 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 bg-white dark:bg-slate-900">
-                          {receivedPayments.map((p, idx) => (
+                          {invoicedPayments.map((p, idx) => (
                             <tr
                               key={`${p.type}-${p.id}`}
                               className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition group"
                             >
                               {/* Serial # */}
                               <td className="py-3 px-3.5 text-center">
-                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-black text-[11px]">
+                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-black text-[11px]">
                                   {idx + 1}
                                 </span>
                               </td>
@@ -3708,9 +3672,9 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                 <div className="font-bold text-slate-900 dark:text-white text-xs">
                                   {p.title}
                                 </div>
-                                <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center space-x-1 mt-0.5">
+                                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center space-x-1 mt-0.5">
                                   <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                  <span>Payment Cleared & Credited</span>
+                                  <span>Invoice Raised</span>
                                 </div>
                               </td>
 
@@ -3727,53 +3691,46 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                 </span>
                               </td>
 
-                              {/* Date Received (Editable inline) */}
+                              {/* Invoice Issue Date (Editable inline) */}
                               <td className="py-3 px-3.5">
                                 <div className="flex items-center space-x-2">
                                   <input
                                     type="date"
-                                    value={p.dateReceived ? p.dateReceived.split("T")[0] : ""}
+                                    value={p.invoiceDate ? p.invoiceDate.split("T")[0] : ""}
                                     onChange={(e) => {
                                       const newDate = e.target.value;
                                       if (p.type === "milestone") {
-                                        handleUpdateMilestone(p.id, { paymentReceivedDate: newDate });
+                                        handleUpdateMilestone(p.id, { invoiceDate: newDate, paymentStatus: "invoiced" });
                                       } else {
-                                        handleUpdatePaymentTerm(p.id, { paymentReceivedDate: newDate });
+                                        handleUpdatePaymentTerm(p.id, { invoiceDate: newDate, paymentStatus: "invoiced" });
                                       }
                                     }}
-                                    className="px-2 py-1 text-xs font-semibold rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                                    title="Edit payment received date"
+                                    className="px-2 py-1 text-xs font-semibold rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                                    title="Edit invoice issue date"
                                   />
                                 </div>
                               </td>
 
                               {/* Amount (₹ INR) */}
                               <td className="py-3 px-3.5">
-                                <span className="font-black text-emerald-700 dark:text-emerald-300 text-sm whitespace-nowrap">
+                                <span className="font-black text-slate-900 dark:text-white text-sm whitespace-nowrap">
                                   {formatINR(p.amount)}
                                 </span>
                               </td>
 
                               {/* Share % */}
                               <td className="py-3 px-3.5 text-center">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                                   {p.percent}%
                                 </span>
                               </td>
 
-                              {/* UTR / Bank Reference */}
+                              {/* Invoice Ref */}
                               <td className="py-3 px-3.5">
-                                {p.utrNumber ? (
-                                  <div className="space-y-0.5">
-                                    <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 inline-block">
-                                      UTR: {p.utrNumber}
-                                    </span>
-                                    {p.bankReference && (
-                                      <div className="text-[10px] text-slate-400">
-                                        {p.bankReference}
-                                      </div>
-                                    )}
-                                  </div>
+                                {p.invoiceNumber ? (
+                                  <span className="text-[11px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                    {p.invoiceNumber}
+                                  </span>
                                 ) : (
                                   <button
                                     type="button"
@@ -3788,19 +3745,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                     className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline flex items-center space-x-1 font-semibold cursor-pointer"
                                   >
                                     <Plus className="w-3 h-3" />
-                                    <span>Add UTR No.</span>
+                                    <span>Set Invoice #</span>
                                   </button>
-                                )}
-                              </td>
-
-                              {/* Invoice Ref */}
-                              <td className="py-3 px-3.5">
-                                {p.invoiceNumber ? (
-                                  <span className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                                    {p.invoiceNumber}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
 
@@ -3818,7 +3764,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                       })
                                     }
                                     className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-lg transition cursor-pointer"
-                                    title="View / Edit Invoice & Bank UTR Proof"
+                                    title="View / Edit Invoice Details"
                                   >
                                     <Receipt className="w-3.5 h-3.5" />
                                   </button>
@@ -3833,7 +3779,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                                       }
                                     }}
                                     className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition cursor-pointer"
-                                    title="Unmark from received (Move back to Pending)"
+                                    title="Unmark from Invoiced (Move back to Pending)"
                                   >
                                     <RefreshCw className="w-3.5 h-3.5" />
                                   </button>
@@ -3847,16 +3793,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                         <tfoot>
                           <tr className="bg-slate-50/90 dark:bg-slate-800/90 border-t-2 border-slate-200 dark:border-slate-700 font-black text-xs text-slate-900 dark:text-white">
                             <td colSpan={4} className="py-3 px-3.5 text-right uppercase tracking-wider text-[11px] text-slate-500">
-                              Total Payments Realized:
+                              Total Invoiced:
                             </td>
-                            <td className="py-3 px-3.5 text-emerald-700 dark:text-emerald-300 font-black text-sm whitespace-nowrap">
-                              {formatINR(totalReceived)}
+                            <td className="py-3 px-3.5 text-indigo-700 dark:text-indigo-300 font-black text-sm whitespace-nowrap">
+                              {formatINR(totalInvoiced)}
                             </td>
-                            <td className="py-3 px-3.5 text-center text-emerald-600 dark:text-emerald-400 font-black">
+                            <td className="py-3 px-3.5 text-center text-indigo-600 dark:text-indigo-400 font-black">
                               {totalPercent}%
                             </td>
-                            <td colSpan={3} className="py-3 px-3.5 text-slate-500 text-[11px] font-medium">
-                              Pending Balance: <strong className="text-amber-600 dark:text-amber-400">{formatINR(pendingAmount)}</strong>
+                            <td colSpan={2} className="py-3 px-3.5 text-slate-500 text-[11px] font-medium">
+                              Unbilled Book: <strong className="text-amber-600 dark:text-amber-400">{formatINR(unbilledAmount)}</strong>
                             </td>
                           </tr>
                         </tfoot>
@@ -3865,55 +3811,55 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   ) : (
                     /* Clean Empty State */
                     <div className="p-6 bg-slate-50/80 dark:bg-slate-800/40 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl text-center space-y-3">
-                      <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200 dark:border-emerald-800">
+                      <div className="w-12 h-12 mx-auto rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200 dark:border-indigo-800">
                         <Receipt className="w-6 h-6" />
                       </div>
                       <div className="space-y-1">
                         <h5 className="text-sm font-black text-slate-800 dark:text-slate-200">
-                          No Payments Recorded as Received Yet
+                          No Invoices Raised Yet
                         </h5>
                         <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                          When payments are received for <strong className="text-slate-700 dark:text-slate-300">{selectedRecord.companyName}</strong>, mark any tranche as &quot;Received&quot; above or click below to record receipt date and amount immediately.
+                          When milestones or scheduled terms are invoiced for <strong className="text-slate-700 dark:text-slate-300">{selectedRecord.companyName}</strong>, mark any tranche as &quot;Invoiced&quot; above or click below to invoice immediately.
                         </p>
                       </div>
 
-                      {/* Quick record buttons for unreceived tranches */}
-                      {(unreceivedMilestones.length > 0 || unreceivedTerms.length > 0) && (
+                      {/* Quick invoice buttons for uninvoiced tranches */}
+                      {(uninvoicedMilestones.length > 0 || uninvoicedTerms.length > 0) && (
                         <div className="pt-2">
                           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                            Quick Record Payment:
+                            Quick Raise Invoice:
                           </span>
                           <div className="flex flex-wrap items-center justify-center gap-2">
-                            {unreceivedMilestones.slice(0, 3).map((m) => (
+                            {uninvoicedMilestones.slice(0, 3).map((m) => (
                               <button
                                 key={m.id}
                                 type="button"
                                 onClick={() =>
                                   handleUpdateMilestone(m.id, {
-                                    paymentStatus: "received",
-                                    paymentReceivedDate: new Date().toISOString().split("T")[0],
+                                    paymentStatus: "invoiced",
+                                    invoiceDate: new Date().toISOString().split("T")[0],
                                   })
                                 }
-                                className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                                className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Mark &quot;{m.milestoneTitle}&quot; Received ({formatINR(m.amount)})</span>
+                                <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Invoice &quot;{m.milestoneTitle}&quot; ({formatINR(m.amount)})</span>
                               </button>
                             ))}
-                            {unreceivedTerms.slice(0, 3).map((t) => (
+                            {uninvoicedTerms.slice(0, 3).map((t) => (
                               <button
                                 key={t.id}
                                 type="button"
                                 onClick={() =>
                                   handleUpdatePaymentTerm(t.id, {
-                                    paymentStatus: "received",
-                                    paymentReceivedDate: new Date().toISOString().split("T")[0],
+                                    paymentStatus: "invoiced",
+                                    invoiceDate: new Date().toISOString().split("T")[0],
                                   })
                                 }
-                                className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:hover:bg-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-800 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                                className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                                <span>Mark &quot;{t.termLabel}&quot; Received ({formatINR(t.amount)})</span>
+                                <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Invoice &quot;{t.termLabel}&quot; ({formatINR(t.amount)})</span>
                               </button>
                             ))}
                           </div>
@@ -4393,7 +4339,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isAdmin
                 ? "Click any project to configure or manage its Tenure model and completion milestones across all client partners."
-                : "Click your assigned project to manage tenure terms, milestones, and payment realizations."}
+                : "Click your assigned project to manage tenure terms, milestones, and tax invoicing."}
             </p>
           </div>
 
@@ -4578,7 +4524,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   <th className="py-3 px-4">Deal Value</th>
                   <th className="py-3 px-4">Tenure Model</th>
                   <th className="py-3 px-4">Project Completion</th>
-                  <th className="py-3 px-4">Payment Realized</th>
+                  <th className="py-3 px-4">Invoiced Amount</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Action</th>
                 </tr>
@@ -4586,8 +4532,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                 {filteredRecords.map((r) => {
                   const fin = getRecordFinancials(r);
-                  const receivedAmt = fin.received;
-                  const percentReceived = Math.round(fin.realizationRate);
+                  const invoicedAmt = fin.invoiced;
+                  const percentInvoiced = Math.round(fin.invoicedRate);
 
                   const isSelected = selectedRecordId === r.id;
 
@@ -4681,14 +4627,14 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       </td>
 
                       <td className="py-3.5 px-4 min-w-[130px]">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-emerald-600 dark:text-emerald-400 mb-1">
-                          <span>{percentReceived}%</span>
-                          <span className="text-[10px] text-slate-400">({formatINR(receivedAmt)})</span>
+                        <div className="flex items-center justify-between text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mb-1">
+                          <span>{percentInvoiced}%</span>
+                          <span className="text-[10px] text-slate-400">({formatINR(invoicedAmt)})</span>
                         </div>
                         <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
                           <div
-                            className="bg-emerald-500 h-full rounded-full"
-                            style={{ width: `${percentReceived}%` }}
+                            className="bg-indigo-600 h-full rounded-full"
+                            style={{ width: `${percentInvoiced}%` }}
                           />
                         </div>
                       </td>

@@ -33,7 +33,7 @@ export const DeliveryFinancialRealizationTable: React.FC<
   records,
   allLeads = [],
   onSelectRecord,
-  title = "DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE",
+  title = "DELIVERY ACCOUNTS & INVOICING TABLE",
   showExportButton = true,
   activeRecordId,
   selectedMonthFilter,
