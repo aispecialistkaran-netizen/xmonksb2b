@@ -37,6 +37,10 @@ import {
   Pin,
   ArrowDownToLine,
   Share2,
+  CheckSquare,
+  Square,
+  MinusSquare,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   TemplateItem,
@@ -50,6 +54,9 @@ import {
   deleteTemplate,
   recordTemplateDownload,
   togglePinTemplate,
+  bulkUpdateTemplates,
+  bulkDeleteTemplates,
+  bulkTogglePinTemplates,
   INITIAL_TEMPLATES,
 } from "@/lib/templatesService";
 import { UserAccount } from "@/constants/users";
@@ -112,6 +119,17 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Multi-select & Bulk Edit State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState<boolean>(false);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+  const [bulkCategory, setBulkCategory] = useState<string>("keep");
+  const [bulkVersion, setBulkVersion] = useState<string>("");
+  const [bulkTagsMode, setBulkTagsMode] = useState<"append" | "replace">("append");
+  const [bulkTagsInput, setBulkTagsInput] = useState<string>("");
+  const [bulkPinAction, setBulkPinAction] = useState<"keep" | "pin" | "unpin">("keep");
+  const [isBulkApplying, setIsBulkApplying] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -210,6 +228,148 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
       return () => clearTimeout(timer);
     }
   }, [successToast]);
+
+  // Multi-Select Helpers & Actions
+  const toggleSelectOne = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const deselectAll = () => setSelectedIds(new Set());
+
+  const isAllVisibleSelected =
+    filteredTemplates.length > 0 &&
+    filteredTemplates.every((t) => selectedIds.has(t.id));
+
+  const isSomeVisibleSelected =
+    filteredTemplates.some((t) => selectedIds.has(t.id)) && !isAllVisibleSelected;
+
+  const toggleSelectAllVisible = () => {
+    if (isAllVisibleSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredTemplates.forEach((t) => next.delete(t.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredTemplates.forEach((t) => next.add(t.id));
+        return next;
+      });
+    }
+  };
+
+  const handleQuickBulkMoveCategory = async (newCategory: TemplateCategory) => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    const catObj = TEMPLATE_CATEGORIES.find((c) => c.id === newCategory);
+    setIsBulkApplying(true);
+    try {
+      await bulkUpdateTemplates(Array.from(selectedIds), {
+        category: newCategory,
+        categoryLabel: catObj?.label || newCategory,
+      });
+      setSuccessToast(`Moved ${count} templates to "${catObj?.label}".`);
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error("Bulk move error", err);
+    } finally {
+      setIsBulkApplying(false);
+    }
+  };
+
+  const handleBulkPin = async (pin: boolean) => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    setIsBulkApplying(true);
+    try {
+      await bulkTogglePinTemplates(Array.from(selectedIds), pin);
+      setSuccessToast(`${pin ? "Pinned" : "Unpinned"} ${count} templates.`);
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error("Bulk pin error", err);
+    } finally {
+      setIsBulkApplying(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    setIsBulkApplying(true);
+    try {
+      await bulkDeleteTemplates(Array.from(selectedIds));
+      setSuccessToast(`Deleted ${count} templates successfully.`);
+      setSelectedIds(new Set());
+      setIsBulkDeleteModalOpen(false);
+    } catch (err) {
+      console.error("Bulk delete error", err);
+    } finally {
+      setIsBulkApplying(false);
+    }
+  };
+
+  const openBulkEditModal = () => {
+    setBulkCategory("keep");
+    setBulkVersion("");
+    setBulkTagsMode("append");
+    setBulkTagsInput("");
+    setBulkPinAction("keep");
+    setIsBulkEditModalOpen(true);
+  };
+
+  const handleApplyBulkEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedIds.size === 0) return;
+    setIsBulkApplying(true);
+    try {
+      const updates: Partial<TemplateItem> = {};
+      if (bulkCategory !== "keep") {
+        const catObj = TEMPLATE_CATEGORIES.find((c) => c.id === bulkCategory);
+        updates.category = bulkCategory as TemplateCategory;
+        updates.categoryLabel = catObj?.label || bulkCategory;
+      }
+      if (bulkVersion.trim()) {
+        updates.version = bulkVersion.trim();
+      }
+      if (bulkPinAction === "pin") {
+        updates.isPinned = true;
+      } else if (bulkPinAction === "unpin") {
+        updates.isPinned = false;
+      }
+
+      const tagsArray = bulkTagsInput
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+
+      if (bulkTagsMode === "replace" && tagsArray.length > 0) {
+        updates.tags = tagsArray;
+        await bulkUpdateTemplates(Array.from(selectedIds), updates);
+      } else if (bulkTagsMode === "append" && tagsArray.length > 0) {
+        await bulkUpdateTemplates(Array.from(selectedIds), updates, tagsArray);
+      } else {
+        await bulkUpdateTemplates(Array.from(selectedIds), updates);
+      }
+
+      setSuccessToast(`Updated ${selectedIds.size} templates.`);
+      setSelectedIds(new Set());
+      setIsBulkEditModalOpen(false);
+    } catch (err) {
+      console.error("Bulk update error", err);
+    } finally {
+      setIsBulkApplying(false);
+    }
+  };
 
   // Open Upload / Edit Modal
   const openUploadModal = (template?: TemplateItem, defaultCategory?: TemplateCategory) => {
@@ -713,8 +873,48 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           )}
         </div>
 
-        {/* Sort & View Mode Controls */}
-        <div className="flex items-center space-x-2 shrink-0">
+        {/* Sort, Multi-Select & View Mode Controls */}
+        <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-2">
+          {/* Multi-Select Toggle */}
+          {isUserAdmin && filteredTemplates.length > 0 && (
+            <div className="flex items-center space-x-1.5">
+              <button
+                type="button"
+                onClick={toggleSelectAllVisible}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                  isAllVisibleSelected
+                    ? "bg-emerald-600 border-emerald-600 text-white shadow-xs"
+                    : selectedIds.size > 0
+                    ? "bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300"
+                    : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                }`}
+                title={isAllVisibleSelected ? "Deselect all visible" : "Select all visible"}
+              >
+                {isAllVisibleSelected ? (
+                  <CheckSquare className="w-3.5 h-3.5" />
+                ) : isSomeVisibleSelected ? (
+                  <MinusSquare className="w-3.5 h-3.5 text-emerald-500" />
+                ) : (
+                  <Square className="w-3.5 h-3.5 text-slate-400" />
+                )}
+                <span>
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} Selected`
+                    : "Select All"}
+                </span>
+              </button>
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={deselectAll}
+                  className="text-[11px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer px-1"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
             <span className="text-slate-400 font-bold text-[11px]">Sort:</span>
             <select
@@ -790,16 +990,39 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
             const fileBadge = getFileTypeBadge(template.fileType);
             const FileIcon = fileBadge.icon;
             const catConfig = TEMPLATE_CATEGORIES.find((c) => c.id === template.category);
+            const isSelected = selectedIds.has(template.id);
 
             return (
               <div
                 key={template.id}
-                className="group relative rounded-3xl bg-white dark:bg-slate-850 border-2 border-slate-200 dark:border-slate-800 p-5 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-800 transition-all flex flex-col justify-between space-y-4"
+                className={`group relative rounded-3xl bg-white dark:bg-slate-850 border-2 p-5 transition-all flex flex-col justify-between space-y-4 ${
+                  isSelected
+                    ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-md bg-emerald-50/10 dark:bg-emerald-950/20"
+                    : "border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-800"
+                }`}
               >
                 {/* Card Top: Badges & Actions */}
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      {isUserAdmin && (
+                        <button
+                          type="button"
+                          onClick={(e) => toggleSelectOne(template.id, e)}
+                          className={`p-1 rounded-md transition-all cursor-pointer ${
+                            isSelected
+                              ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 ring-1 ring-emerald-500"
+                              : "text-slate-300 dark:text-slate-600 hover:text-slate-500 opacity-60 hover:opacity-100 group-hover:opacity-100"
+                          }`}
+                          title={isSelected ? "Deselect template" : "Select template"}
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-emerald-500" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
                       <span
                         className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${fileBadge.bg}`}
                       >
@@ -949,6 +1172,24 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                  {isUserAdmin && (
+                    <th className="py-3 px-3 w-10 text-center">
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllVisible}
+                        className="text-slate-400 hover:text-emerald-500 transition cursor-pointer"
+                        title={isAllVisibleSelected ? "Deselect all visible" : "Select all visible"}
+                      >
+                        {isAllVisibleSelected ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-500" />
+                        ) : isSomeVisibleSelected ? (
+                          <MinusSquare className="w-4 h-4 text-emerald-500" />
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </th>
+                  )}
                   <th className="py-3 px-4">Template Title & File</th>
                   <th className="py-3 px-3">Category</th>
                   <th className="py-3 px-3">Type & Size</th>
@@ -961,12 +1202,33 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                 {filteredTemplates.map((template) => {
                   const fileBadge = getFileTypeBadge(template.fileType);
                   const catConfig = TEMPLATE_CATEGORIES.find((c) => c.id === template.category);
+                  const isSelected = selectedIds.has(template.id);
 
                   return (
                     <tr
                       key={template.id}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      className={`transition-colors ${
+                        isSelected
+                          ? "bg-emerald-50/70 dark:bg-emerald-950/30"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      }`}
                     >
+                      {isUserAdmin && (
+                        <td className="py-3.5 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => toggleSelectOne(template.id, e)}
+                            className="text-slate-400 hover:text-emerald-500 transition cursor-pointer"
+                            title={isSelected ? "Deselect template" : "Select template"}
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-emerald-500" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                            )}
+                          </button>
+                        </td>
+                      )}
                       {/* Title & File */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center space-x-2.5">
@@ -1532,6 +1794,330 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* FLOATING BULK ACTIONS BAR */}
+      {isUserAdmin && selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center space-x-3 sm:space-x-4 animate-in slide-in-from-bottom-5 duration-200 max-w-[95vw] overflow-x-auto">
+          <div className="flex items-center space-x-2 shrink-0">
+            <span className="w-6 h-6 rounded-full bg-emerald-500 text-white font-black text-xs flex items-center justify-center">
+              {selectedIds.size}
+            </span>
+            <span className="text-xs font-bold text-slate-200 hidden sm:inline">
+              selected
+            </span>
+          </div>
+
+          <div className="h-5 w-px bg-slate-700 shrink-0" />
+
+          {/* Quick Category Move Dropdown */}
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <span className="text-[11px] font-semibold text-slate-400 hidden md:inline">
+              Move to:
+            </span>
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleQuickBulkMoveCategory(e.target.value as TemplateCategory);
+                  e.target.value = "";
+                }
+              }}
+              disabled={isBulkApplying}
+              defaultValue=""
+              className="bg-slate-800 hover:bg-slate-750 text-white text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+            >
+              <option value="" disabled>
+                Change Category...
+              </option>
+              {TEMPLATE_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Bulk Edit Button (Opens Modal) */}
+          <button
+            type="button"
+            onClick={openBulkEditModal}
+            disabled={isBulkApplying}
+            className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shrink-0 cursor-pointer shadow-xs active:scale-95"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Bulk Edit</span>
+          </button>
+
+          {/* Pin / Unpin Selected */}
+          <div className="flex items-center space-x-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleBulkPin(true)}
+              disabled={isBulkApplying}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 transition cursor-pointer"
+              title="Pin all selected to top"
+            >
+              <Pin className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Delete Selected */}
+          <button
+            type="button"
+            onClick={() => setIsBulkDeleteModalOpen(true)}
+            disabled={isBulkApplying}
+            className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 transition cursor-pointer shrink-0"
+            title="Delete selected templates"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="h-5 w-px bg-slate-700 shrink-0" />
+
+          {/* Deselect All */}
+          <button
+            type="button"
+            onClick={deselectAll}
+            className="p-1 text-slate-400 hover:text-white transition cursor-pointer shrink-0"
+            title="Clear selection"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* BULK EDIT MODAL */}
+      {isBulkEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-xl rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
+              <div className="flex items-center space-x-2">
+                <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Bulk Edit ({selectedIds.size} Selected)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Apply category, version, and tag updates across all selected templates at once.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isBulkApplying && setIsBulkEditModalOpen(false)}
+                disabled={isBulkApplying}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-40"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleApplyBulkEdit} className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Selected Items Preview */}
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                  Templates to Update ({selectedIds.size})
+                </span>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {templates
+                    .filter((t) => selectedIds.has(t.id))
+                    .map((t) => (
+                      <span
+                        key={t.id}
+                        className="px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 truncate max-w-[220px]"
+                        title={t.title}
+                      >
+                        {t.title}
+                      </span>
+                    ))}
+                </div>
+              </div>
+
+              {/* Move Category */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Category
+                </label>
+                <select
+                  value={bulkCategory}
+                  onChange={(e) => setBulkCategory(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
+                >
+                  <option value="keep">Keep Existing Categories</option>
+                  {TEMPLATE_CATEGORIES.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      Move all to: {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Version & Pin Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Version
+                  </label>
+                  <input
+                    type="text"
+                    value={bulkVersion}
+                    onChange={(e) => setBulkVersion(e.target.value)}
+                    placeholder="Leave empty to keep current"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Pin Status
+                  </label>
+                  <select
+                    value={bulkPinAction}
+                    onChange={(e) => setBulkPinAction(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
+                  >
+                    <option value="keep">Keep Current Status</option>
+                    <option value="pin">Pin All to Top</option>
+                    <option value="unpin">Unpin All</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Search Tags */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Search Tags
+                  </label>
+                  <div className="flex items-center space-x-2 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setBulkTagsMode("append")}
+                      className={`px-2 py-0.5 rounded cursor-pointer ${
+                        bulkTagsMode === "append"
+                          ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300"
+                          : "text-slate-400 hover:text-slate-600"
+                      }`}
+                    >
+                      Append to existing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkTagsMode("replace")}
+                      className={`px-2 py-0.5 rounded cursor-pointer ${
+                        bulkTagsMode === "replace"
+                          ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300"
+                          : "text-slate-400 hover:text-slate-600"
+                      }`}
+                    >
+                      Replace all
+                    </button>
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  value={bulkTagsInput}
+                  onChange={(e) => setBulkTagsInput(e.target.value)}
+                  placeholder="e.g. Enterprise, Q4 Pitch, Executive Coaching"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkEditModalOpen(false)}
+                  disabled={isBulkApplying}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isBulkApplying}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md transition disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
+                >
+                  {isBulkApplying ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Apply to {selectedIds.size} Templates</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* BULK DELETE CONFIRMATION MODAL */}
+      {isBulkDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-2xl p-6 text-center space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div>
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                Delete {selectedIds.size} Selected Templates?
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                This action will permanently remove these {selectedIds.size} templates from the library for all team members.
+              </p>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 text-left max-h-32 overflow-y-auto space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+              {templates
+                .filter((t) => selectedIds.has(t.id))
+                .map((t) => (
+                  <div key={t.id} className="truncate">
+                    • {t.title}
+                  </div>
+                ))}
+            </div>
+
+            <div className="flex items-center justify-center space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                disabled={isBulkApplying}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkDelete}
+                disabled={isBulkApplying}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-md transition cursor-pointer flex items-center space-x-1.5"
+              >
+                {isBulkApplying ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete {selectedIds.size} Templates</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

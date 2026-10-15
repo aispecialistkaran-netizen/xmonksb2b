@@ -691,3 +691,79 @@ export async function togglePinTemplate(id: string): Promise<void> {
     }
   }
 }
+
+/**
+ * Bulk update templates (category, tags, version, isPinned)
+ */
+export async function bulkUpdateTemplates(
+  ids: string[],
+  updates: Partial<TemplateItem>,
+  appendTags?: string[]
+): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  const idSet = new Set(ids);
+  const current = getStoredTemplates();
+
+  const updated = current.map((t) => {
+    if (idSet.has(t.id)) {
+      let combinedTags = t.tags || [];
+      if (appendTags && appendTags.length > 0) {
+        const tagSet = new Set([...combinedTags, ...appendTags]);
+        combinedTags = Array.from(tagSet);
+      }
+      return {
+        ...t,
+        ...updates,
+        ...(appendTags ? { tags: combinedTags } : {}),
+      };
+    }
+    return t;
+  });
+
+  saveLocalTemplates(updated);
+
+  try {
+    await Promise.all(
+      ids.map((id) => {
+        const item = updated.find((t) => t.id === id);
+        if (item) {
+          return setDoc(doc(db, TEMPLATES_COLLECTION, id), item, { merge: true });
+        }
+        return Promise.resolve();
+      })
+    );
+  } catch (e) {
+    console.warn("Failed to bulk update templates in Firestore", e);
+  }
+}
+
+/**
+ * Bulk delete templates
+ */
+export async function bulkDeleteTemplates(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  ids.forEach(recordDeletedTemplateId);
+  const idSet = new Set(ids);
+  const current = getStoredTemplates();
+  const updated = current.filter((t) => !idSet.has(t.id));
+  saveLocalTemplates(updated);
+
+  try {
+    await Promise.all(
+      ids.map(async (id) => {
+        await setDoc(doc(db, TEMPLATES_COLLECTION, id), { isDeleted: true }, { merge: true });
+        await deleteDoc(doc(db, TEMPLATES_COLLECTION, id));
+      })
+    );
+  } catch (e) {
+    console.warn("Failed to bulk delete templates from Firestore", e);
+  }
+}
+
+/**
+ * Bulk pin or unpin templates
+ */
+export async function bulkTogglePinTemplates(ids: string[], isPinned: boolean): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  await bulkUpdateTemplates(ids, { isPinned });
+}
