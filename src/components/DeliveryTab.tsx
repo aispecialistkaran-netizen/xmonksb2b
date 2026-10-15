@@ -1635,6 +1635,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 <div className="space-y-3">
                   <DeliveryFinancialRealizationTable
                     records={recordsForAnalytics}
+                    allLeads={allLeads}
                     onSelectRecord={handleSelectRecord}
                     title={
                       selectedMonthFilter !== "all"
@@ -4472,6 +4473,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         ) : deliveryViewMode === "financial" ? (
           <DeliveryFinancialRealizationTable
             records={filteredRecords}
+            allLeads={allLeads}
             onSelectRecord={handleSelectRecord}
             activeRecordId={selectedRecordId}
           />

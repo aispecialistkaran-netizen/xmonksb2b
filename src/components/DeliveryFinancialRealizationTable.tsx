@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Download, ExternalLink } from "lucide-react";
+import { Download, ExternalLink, User } from "lucide-react";
 import { DeliveryRecord } from "@/types/delivery";
+import { Lead } from "@/types/lead";
 import { formatINR } from "@/lib/formatters";
 import { downloadCSV } from "@/lib/deliveryAnalytics";
 
 interface DeliveryFinancialRealizationTableProps {
   records: DeliveryRecord[];
+  allLeads?: Lead[];
   onSelectRecord?: (recordId: string) => void;
   title?: string;
   showExportButton?: boolean;
@@ -18,6 +20,7 @@ export const DeliveryFinancialRealizationTable: React.FC<
   DeliveryFinancialRealizationTableProps
 > = ({
   records,
+  allLeads = [],
   onSelectRecord,
   title = "DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE",
   showExportButton = true,
@@ -59,6 +62,19 @@ export const DeliveryFinancialRealizationTable: React.FC<
     };
   };
 
+  // Helper to extract lead owner for a delivery record
+  const getRecordLeadOwner = (record: DeliveryRecord): string => {
+    if (record.clientPartner && record.clientPartner.trim()) {
+      return record.clientPartner.trim();
+    }
+    const matchingLead = allLeads.find(
+      (l) =>
+        l.id === record.leadId ||
+        l.companyName.trim().toLowerCase() === record.companyName.trim().toLowerCase()
+    );
+    return matchingLead?.owner?.trim() || "Unassigned";
+  };
+
   // Portfolio Scope Totals
   const totals = useMemo(() => {
     let totalDealValue = 0;
@@ -81,7 +97,7 @@ export const DeliveryFinancialRealizationTable: React.FC<
     const headers = [
       "Company Name",
       "Program",
-      "Lead Owner / Partner",
+      "Lead Owner",
       "Delivery Lead",
       "Start Date",
       "Target Date",
@@ -93,11 +109,12 @@ export const DeliveryFinancialRealizationTable: React.FC<
 
     const rows = records.map((record) => {
       const b = getRecordFinancialBreakdown(record);
+      const ownerName = getRecordLeadOwner(record);
 
       return [
         `"${record.companyName.replace(/"/g, '""')}"`,
         `"${(record.program || "Executive Coaching").replace(/"/g, '""')}"`,
-        `"${(record.clientPartner || "Sales Lead").replace(/"/g, '""')}"`,
+        `"${ownerName.replace(/"/g, '""')}"`,
         `"${(record.deliveryLead || "Delivery Lead").replace(/"/g, '""')}"`,
         `"${record.startDate || ""}"`,
         `"${record.targetCompletionDate || ""}"`,
@@ -162,6 +179,7 @@ export const DeliveryFinancialRealizationTable: React.FC<
           <thead>
             <tr className="bg-slate-100 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
               <th className="py-3 px-4">Client Account & Program</th>
+              <th className="py-3 px-3">Lead Owner</th>
               <th className="py-3 px-3">Project Tenure</th>
               <th className="py-3 px-3">Status & Progress</th>
               <th className="py-3 px-3 text-right">Delivery Book</th>
@@ -173,6 +191,7 @@ export const DeliveryFinancialRealizationTable: React.FC<
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {records.map((record) => {
               const b = getRecordFinancialBreakdown(record);
+              const ownerName = getRecordLeadOwner(record);
               const isSelected = activeRecordId === record.id;
 
               return (
@@ -202,9 +221,26 @@ export const DeliveryFinancialRealizationTable: React.FC<
                           )}
                         </div>
                         <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                          {record.program || "Executive Coaching"} • Lead:{" "}
-                          {record.deliveryLead || record.clientPartner || "Delivery Lead"}
+                          {record.program || "Executive Coaching"}
+                          {record.deliveryLead && record.deliveryLead !== ownerName ? ` • Delivery: ${record.deliveryLead}` : ""}
                         </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Lead Owner */}
+                  <td className="py-3.5 px-3 whitespace-nowrap">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-black text-[10px] flex items-center justify-center shrink-0">
+                        {ownerName.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-xs block">
+                          {ownerName}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block font-medium">
+                          Lead Partner
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -262,7 +298,7 @@ export const DeliveryFinancialRealizationTable: React.FC<
             <tr className="bg-slate-100/90 dark:bg-slate-900/90 font-black text-xs border-t-2 border-slate-300 dark:border-slate-700">
               <td
                 className="py-3.5 px-4 uppercase text-slate-600 dark:text-slate-300"
-                colSpan={3}
+                colSpan={4}
               >
                 Total Portfolio Scope ({records.length} Accounts)
               </td>
