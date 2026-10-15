@@ -519,6 +519,31 @@ export async function saveTemplate(template: TemplateItem): Promise<void> {
 }
 
 /**
+ * Add or update multiple templates at once (Batch upload)
+ */
+export async function saveTemplatesBatch(newTemplates: TemplateItem[]): Promise<void> {
+  if (!newTemplates || newTemplates.length === 0) return;
+  const current = getStoredTemplates();
+  const map = new Map<string, TemplateItem>();
+  // Seed current
+  current.forEach((t) => map.set(t.id, t));
+  // Upsert new
+  newTemplates.forEach((t) => map.set(t.id, t));
+  const updated = Array.from(map.values());
+  saveLocalTemplates(updated);
+
+  try {
+    await Promise.all(
+      newTemplates.map((tpl) =>
+        setDoc(doc(db, TEMPLATES_COLLECTION, tpl.id), tpl, { merge: true })
+      )
+    );
+  } catch (e) {
+    console.warn("Failed to sync templates batch to Firestore", e);
+  }
+}
+
+/**
  * Delete a template (Admin only)
  */
 export async function deleteTemplate(id: string): Promise<void> {

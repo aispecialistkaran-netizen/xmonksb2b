@@ -46,6 +46,7 @@ import {
 import {
   subscribeToTemplates,
   saveTemplate,
+  saveTemplatesBatch,
   deleteTemplate,
   recordTemplateDownload,
   togglePinTemplate,
@@ -53,6 +54,17 @@ import {
 } from "@/lib/templatesService";
 import { UserAccount } from "@/constants/users";
 import { formatBytes } from "@/lib/formatters";
+
+export interface QueuedTemplateFile {
+  id: string;
+  file: File;
+  fileName: string;
+  title: string;
+  category: TemplateCategory;
+  fileSize: string;
+  fileSizeBytes: number;
+  fileType: string;
+}
 
 interface TemplatesTabProps {
   currentUser?: UserAccount | null;
@@ -76,7 +88,17 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [editingTemplate, setEditingTemplate] = useState<TemplateItem | null>(null);
 
-  // Form State
+  // Multi-upload Queue & Drag State
+  const [queuedFiles, setQueuedFiles] = useState<QueuedTemplateFile[]>([]);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    currentFileName?: string;
+  } | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Form / Batch Shared State
   const [formTitle, setFormTitle] = useState<string>("");
   const [formCategory, setFormCategory] = useState<TemplateCategory>("financial_proposals");
   const [formDescription, setFormDescription] = useState<string>("");
@@ -179,6 +201,16 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (successToast) {
+      const timer = setTimeout(() => {
+        setSuccessToast(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [successToast]);
+
   // Open Upload / Edit Modal
   const openUploadModal = (template?: TemplateItem) => {
     if (template) {
@@ -193,6 +225,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
       setFormFileSizeBytes(template.fileSizeBytes);
       setFormFileType(template.fileType);
       setFormDownloadUrl(template.downloadUrl);
+      setQueuedFiles([]);
     } else {
       setEditingTemplate(null);
       setFormTitle("");
@@ -205,40 +238,160 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
       setFormFileSizeBytes(0);
       setFormFileType("doc");
       setFormDownloadUrl("");
+      setQueuedFiles([]);
     }
     setFormError(null);
+    setUploadProgress(null);
+    setIsDragging(false);
     setIsUploadModalOpen(true);
   };
 
-  // Handle File Input in Upload Modal
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // Helper for single file selection (editing mode)
+  const handleSingleFileChange = (file: File) => {
     const extension = file.name.split(".").pop()?.toLowerCase() || "doc";
     setFormFileName(file.name);
     setFormFileSize(formatBytes(file.size));
     setFormFileSizeBytes(file.size);
     setFormFileType(extension);
     if (!formTitle) {
-      // Auto-populate friendly title from file name
-      setFormTitle(file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ").trim());
+      setFormTitle(file.name.replace(/\.[^/.]+$/, "").replace(/[-_]+/g, " ").trim());
     }
-
-    // Create local object URL for preview/download
     const objectUrl = URL.createObjectURL(file);
     setFormDownloadUrl(objectUrl);
   };
 
-  // Save Template Form Handler
+  // Add multiple files to queue
+  const addFilesToQueue = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    setQueuedFiles((prev) => {
+      const existingSignatures = new Set(
+        prev.map((f) => `${f.fileName}-${f.fileSizeBytes}`)
+      );
+      const newItems: QueuedTemplateFile[] = [];
+
+      fileArray.forEach((file) => {
+        const signature = `${file.name}-${file.size}`;
+        if (!existingSignatures.has(signature)) {
+          const extension = file.name.split(".").pop()?.toLowerCase() || "doc";
+          const cleanTitle = file.name
+            .replace(/\.[^/.]+$/, "")
+            .replace(/[-_]+/g, " ")
+            .trim();
+
+          newItems.push({
+            id: `q-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            file,
+            fileName: file.name,
+            title: cleanTitle,
+            category: formCategory,
+            fileSize: formatBytes(file.size),
+            fileSizeBytes: file.size,
+            fileType: extension,
+          });
+        }
+      });
+
+      return [...prev, ...newItems];
+    });
+    setFormError(null);
+  };
+
+  const removeQueuedFile = (id: string) => {
+    setQueuedFiles((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const updateQueuedFile = (id: string, updates: Partial<QueuedTemplateFile>) => {
+    setQueuedFiles((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
+    );
+  };
+
+  const applyCategoryToAll = (category: TemplateCategory) => {
+    setFormCategory(category);
+    setQueuedFiles((prev) => prev.map((item) => ({ ...item, category })));
+  };
+
+  const clearQueue = () => {
+    setQueuedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // Handle File Input in Upload Modal
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (editingTemplate) {
+      handleSingleFileChange(files[0]);
+    } else {
+      addFilesToQueue(files);
+    }
+    // reset input value so selecting the same file again triggers change
+    e.target.value = "";
+  };
+
+  // Save Template Form Handler (Single Edit or Batch Multi-Upload)
   const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formTitle.trim()) {
-      setFormError("Please enter a title for the template.");
+
+    if (editingTemplate) {
+      if (!formTitle.trim()) {
+        setFormError("Please enter a title for the template.");
+        return;
+      }
+
+      setIsUploading(true);
+      setFormError(null);
+
+      try {
+        const categoryObj = TEMPLATE_CATEGORIES.find((c) => c.id === formCategory);
+        const parsedTags = formTags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+
+        const templateToSave: TemplateItem = {
+          ...editingTemplate,
+          title: formTitle.trim(),
+          fileName: formFileName.trim() || editingTemplate.fileName,
+          fileSize: formFileSize || editingTemplate.fileSize,
+          fileSizeBytes: formFileSizeBytes || editingTemplate.fileSizeBytes,
+          fileType: formFileType || editingTemplate.fileType,
+          category: formCategory,
+          categoryLabel: categoryObj?.label || editingTemplate.categoryLabel,
+          description: formDescription.trim(),
+          downloadUrl:
+            formDownloadUrl ||
+            editingTemplate.downloadUrl ||
+            "/Template%20_%20Financial%20%20Proposal%20_%20Program%20Name%20@%20Client%20Name.doc",
+          tags: parsedTags.length > 0 ? parsedTags : [categoryObj?.label || "Template"],
+          version: formVersion.trim() || "v1.0",
+        };
+
+        await saveTemplate(templateToSave);
+        setIsUploadModalOpen(false);
+        setSuccessToast(`Template "${templateToSave.title}" updated successfully.`);
+      } catch (err: any) {
+        setFormError(err.message || "Failed to save template.");
+      } finally {
+        setIsUploading(false);
+      }
       return;
     }
-    if (!formFileName.trim() && !editingTemplate) {
-      setFormError("Please select a template file to upload.");
+
+    // MULTI-UPLOAD NEW TEMPLATES
+    if (queuedFiles.length === 0) {
+      setFormError("Please select or drop at least one template file to upload.");
+      return;
+    }
+
+    const missingTitle = queuedFiles.find((f) => !f.title.trim());
+    if (missingTitle) {
+      setFormError(`Please provide a display title for "${missingTitle.fileName}".`);
       return;
     }
 
@@ -246,42 +399,82 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
     setFormError(null);
 
     try {
-      const categoryObj = TEMPLATE_CATEGORIES.find((c) => c.id === formCategory);
+      const templatesToSave: TemplateItem[] = [];
       const parsedTags = formTags
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
 
-      const templateToSave: TemplateItem = {
-        id: editingTemplate ? editingTemplate.id : `tpl-${Date.now()}`,
-        title: formTitle.trim(),
-        fileName: formFileName.trim() || "template_document.doc",
-        fileSize: formFileSize || "500 KB",
-        fileSizeBytes: formFileSizeBytes || 512000,
-        fileType: formFileType || "doc",
-        category: formCategory,
-        categoryLabel: categoryObj?.label || "Financial Proposals",
-        description: formDescription.trim(),
-        downloadUrl:
-          formDownloadUrl ||
-          editingTemplate?.downloadUrl ||
-          "/Template%20_%20Financial%20%20Proposal%20_%20Program%20Name%20@%20Client%20Name.doc",
-        uploadedBy: currentUser?.name || "Admin",
-        uploadedByEmail: currentUser?.email || "sales@xmonks.com",
-        uploadedAt: editingTemplate?.uploadedAt || new Date().toISOString(),
-        uploadedAtMs: editingTemplate?.uploadedAtMs || Date.now(),
-        tags: parsedTags.length > 0 ? parsedTags : [categoryObj?.label || "Template"],
-        isPinned: editingTemplate?.isPinned || false,
-        downloadCount: editingTemplate?.downloadCount || 0,
-        version: formVersion.trim() || "v1.0",
-      };
+      for (let i = 0; i < queuedFiles.length; i++) {
+        const qf = queuedFiles[i];
+        setUploadProgress({
+          current: i + 1,
+          total: queuedFiles.length,
+          currentFileName: qf.fileName,
+        });
 
-      await saveTemplate(templateToSave);
+        let downloadUrl = "";
+        try {
+          const formData = new FormData();
+          formData.append("file", qf.file);
+          formData.append("uploadedBy", currentUser?.name || "Admin");
+
+          const res = await fetch("/api/templates/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.downloadUrl) {
+              downloadUrl = data.downloadUrl;
+            }
+          }
+        } catch (uploadErr) {
+          console.warn("Upload to storage route failed, falling back to local object URL:", uploadErr);
+        }
+
+        if (!downloadUrl) {
+          downloadUrl = URL.createObjectURL(qf.file);
+        }
+
+        const categoryObj = TEMPLATE_CATEGORIES.find((c) => c.id === qf.category);
+
+        templatesToSave.push({
+          id: `tpl-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+          title: qf.title.trim(),
+          fileName: qf.fileName,
+          fileSize: qf.fileSize,
+          fileSizeBytes: qf.fileSizeBytes,
+          fileType: qf.fileType,
+          category: qf.category,
+          categoryLabel: categoryObj?.label || "Financial Proposals",
+          description: formDescription.trim(),
+          downloadUrl,
+          uploadedBy: currentUser?.name || "Admin",
+          uploadedByEmail: currentUser?.email || "sales@xmonks.com",
+          uploadedAt: new Date().toISOString(),
+          uploadedAtMs: Date.now() + i,
+          tags: parsedTags.length > 0 ? parsedTags : [categoryObj?.label || "Template"],
+          isPinned: false,
+          downloadCount: 0,
+          version: formVersion.trim() || "v1.0",
+        });
+      }
+
+      await saveTemplatesBatch(templatesToSave);
       setIsUploadModalOpen(false);
+      setQueuedFiles([]);
+      setSuccessToast(
+        `Successfully published ${templatesToSave.length} master template${
+          templatesToSave.length > 1 ? "s" : ""
+        } to the Master Repository!`
+      );
     } catch (err: any) {
-      setFormError(err.message || "Failed to save template.");
+      setFormError(err.message || "Failed to publish templates.");
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -318,6 +511,23 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Toast Notification */}
+      {successToast && (
+        <div className="p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-900 dark:text-emerald-200 text-xs font-bold flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center space-x-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{successToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSuccessToast(null)}
+            className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-white rounded-lg transition cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-950 border border-indigo-800/60 p-6 sm:p-8 shadow-xl text-white">
         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -829,7 +1039,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
       {/* ADMIN UPLOAD / EDIT MODAL */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="relative w-full max-w-xl rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-3xl rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
               <div className="flex items-center space-x-2">
@@ -837,8 +1047,19 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                   <UploadCloud className="w-5 h-5" />
                 </span>
                 <div>
-                  <h3 className="text-base font-black text-slate-900 dark:text-white">
-                    {editingTemplate ? "Edit Template Details" : "Upload New Master Template"}
+                  <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>
+                      {editingTemplate
+                        ? "Edit Template Details"
+                        : queuedFiles.length > 1
+                        ? `Upload Master Templates (${queuedFiles.length} Selected)`
+                        : "Upload New Master Template"}
+                    </span>
+                    {!editingTemplate && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                        Multi-Upload
+                      </span>
+                    )}
                   </h3>
                   <p className="text-[11px] text-slate-500">
                     Uploaded templates are immediately visible and downloadable by all team members.
@@ -847,15 +1068,16 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setIsUploadModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+                onClick={() => !isUploading && setIsUploadModalOpen(false)}
+                disabled={isUploading}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-40"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleSaveForm} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+            <form onSubmit={handleSaveForm} className="p-5 space-y-4 max-h-[82vh] overflow-y-auto">
               {formError && (
                 <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -863,25 +1085,93 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                 </div>
               )}
 
+              {/* Upload Progress Bar (during upload) */}
+              {isUploading && uploadProgress && (
+                <div className="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                      <span>
+                        Publishing {uploadProgress.current} of {uploadProgress.total} documents...
+                      </span>
+                    </span>
+                    <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
+                      {Math.round((uploadProgress.current / uploadProgress.total) * 100)}%
+                    </span>
+                  </div>
+                  {uploadProgress.currentFileName && (
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                      File: {uploadProgress.currentFileName}
+                    </div>
+                  )}
+                  <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full transition-all duration-300 rounded-full"
+                      style={{
+                        width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* File Upload Zone */}
               <div className="space-y-1.5">
-                <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Select Template File (.doc, .docx, .pdf, .xlsx)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    {editingTemplate ? "Template Document" : "Select Template File(s)"}
+                  </label>
+                  {!editingTemplate && (
+                    <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      Drag multiple files at once
+                    </span>
+                  )}
+                </div>
+
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-4 border-2 border-dashed border-emerald-300 dark:border-emerald-800 rounded-2xl bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50/70 transition-all text-center cursor-pointer group"
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      if (editingTemplate) {
+                        handleSingleFileChange(e.dataTransfer.files[0]);
+                      } else {
+                        addFilesToQueue(e.dataTransfer.files);
+                      }
+                    }
+                  }}
+                  className={`p-4 border-2 border-dashed rounded-2xl transition-all text-center cursor-pointer group ${
+                    isDragging
+                      ? "border-emerald-500 bg-emerald-100/50 dark:bg-emerald-950/40 ring-4 ring-emerald-500/20"
+                      : "border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50/70"
+                  }`}
                 >
-                  <UploadCloud className="w-8 h-8 mx-auto text-emerald-500 group-hover:scale-110 transition-transform mb-1.5" />
+                  <UploadCloud
+                    className={`w-8 h-8 mx-auto text-emerald-500 group-hover:scale-110 transition-transform mb-1.5 ${
+                      isDragging ? "animate-bounce" : ""
+                    }`}
+                  />
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    {formFileName ? formFileName : "Click or drag to select document"}
+                    {editingTemplate
+                      ? formFileName || "Click or drag to replace document"
+                      : queuedFiles.length > 0
+                      ? "Click or drag to add more documents"
+                      : "Click or drag to select document(s)"}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    {formFileSize ? `Size: ${formFileSize} • Type: ${formFileType.toUpperCase()}` : "Word (.doc, .docx), Excel (.xlsx), PDF up to 25MB"}
+                    Word (.doc, .docx), Excel (.xlsx), PDF up to 25MB • Multi-file batch upload enabled
                   </p>
                   <input
                     ref={fileInputRef}
                     type="file"
+                    multiple={!editingTemplate}
                     onChange={handleFileChange}
                     accept=".doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx,.txt"
                     className="hidden"
@@ -889,69 +1179,250 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                 </div>
               </div>
 
-              {/* Title & Category Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Template Display Title *
-                  </label>
-                  <input
-                    type="text"
-                    value={formTitle}
-                    onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="e.g. Executive Financial Proposal"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
-                  />
-                </div>
+              {/* QUEUED FILES LIST (Multi-upload mode) */}
+              {!editingTemplate && queuedFiles.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider text-[11px]">
+                        Queued Templates ({queuedFiles.length})
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                        {formatBytes(queuedFiles.reduce((acc, f) => acc + f.fileSizeBytes, 0))} total
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Add more</span>
+                      </button>
+                      <span className="text-slate-300 dark:text-slate-700">|</span>
+                      <button
+                        type="button"
+                        onClick={clearQueue}
+                        className="text-[11px] font-bold text-rose-500 hover:text-rose-600 cursor-pointer"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Category *
-                  </label>
-                  <select
-                    value={formCategory}
-                    onChange={(e) => setFormCategory(e.target.value as TemplateCategory)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
-                  >
-                    {TEMPLATE_CATEGORIES.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                  {/* Scrollable List of Queued Files */}
+                  <div className="max-h-56 overflow-y-auto space-y-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800">
+                    {queuedFiles.map((qf, index) => {
+                      const fileBadge = getFileTypeBadge(qf.fileType);
+                      return (
+                        <div
+                          key={qf.id}
+                          className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center gap-2.5"
+                        >
+                          <div className="flex items-center space-x-2 shrink-0">
+                            <span className="text-[10px] font-mono text-slate-400 w-4">
+                              #{index + 1}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[9px] font-black uppercase shrink-0 border ${fileBadge.bg}`}
+                            >
+                              {fileBadge.label}
+                            </span>
+                          </div>
 
-              {/* Version & Tags */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1 sm:col-span-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Version
-                  </label>
-                  <input
-                    type="text"
-                    value={formVersion}
-                    onChange={(e) => setFormVersion(e.target.value)}
-                    placeholder="v1.0"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
+                          <div className="flex-1 grid grid-cols-1 sm:grid-cols-12 gap-2 w-full min-w-0">
+                            {/* Title input */}
+                            <div className="sm:col-span-7 min-w-0">
+                              <input
+                                type="text"
+                                value={qf.title}
+                                onChange={(e) =>
+                                  updateQueuedFile(qf.id, { title: e.target.value })
+                                }
+                                placeholder="Template Title *"
+                                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/80 text-slate-900 dark:text-white font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              />
+                              <div className="text-[10px] text-slate-400 truncate mt-0.5 font-mono">
+                                {qf.fileName} • {qf.fileSize}
+                              </div>
+                            </div>
 
-                <div className="space-y-1 sm:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Search Tags (comma-separated)
-                  </label>
-                  <input
-                    type="text"
-                    value={formTags}
-                    onChange={(e) => setFormTags(e.target.value)}
-                    placeholder="Financial Proposals, Pricing, Commercials"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
+                            {/* Category selector */}
+                            <div className="sm:col-span-5">
+                              <select
+                                value={qf.category}
+                                onChange={(e) =>
+                                  updateQueuedFile(qf.id, {
+                                    category: e.target.value as TemplateCategory,
+                                  })
+                                }
+                                className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                              >
+                                {TEMPLATE_CATEGORIES.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
 
-              {/* Description */}
+                          {/* Remove button */}
+                          <button
+                            type="button"
+                            onClick={() => removeQueuedFile(qf.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition shrink-0 self-center cursor-pointer"
+                            title="Remove file"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* SINGLE EDIT MODE: Title & Category fields */}
+              {editingTemplate && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Template Display Title *
+                    </label>
+                    <input
+                      type="text"
+                      value={formTitle}
+                      onChange={(e) => setFormTitle(e.target.value)}
+                      placeholder="e.g. Executive Financial Proposal"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Category *
+                    </label>
+                    <select
+                      value={formCategory}
+                      onChange={(e) => setFormCategory(e.target.value as TemplateCategory)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
+                    >
+                      {TEMPLATE_CATEGORIES.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* BATCH DEFAULTS / SHARED METADATA */}
+              {!editingTemplate && (
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Batch Defaults & Metadata</span>
+                    </span>
+                    {queuedFiles.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => applyCategoryToAll(formCategory)}
+                        className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-300 dark:border-emerald-800 cursor-pointer"
+                      >
+                        Apply category to all queued
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Default Category *
+                      </label>
+                      <select
+                        value={formCategory}
+                        onChange={(e) => {
+                          const cat = e.target.value as TemplateCategory;
+                          setFormCategory(cat);
+                          if (queuedFiles.length <= 1) {
+                            applyCategoryToAll(cat);
+                          }
+                        }}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
+                      >
+                        {TEMPLATE_CATEGORIES.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Version
+                      </label>
+                      <input
+                        type="text"
+                        value={formVersion}
+                        onChange={(e) => setFormVersion(e.target.value)}
+                        placeholder="v1.0"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Search Tags (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={formTags}
+                      onChange={(e) => setFormTags(e.target.value)}
+                      placeholder="Financial Proposals, Pricing, Commercials"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Version & Tags for single edit */}
+              {editingTemplate && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1 sm:col-span-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Version
+                    </label>
+                    <input
+                      type="text"
+                      value={formVersion}
+                      onChange={(e) => setFormVersion(e.target.value)}
+                      placeholder="v1.0"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Search Tags (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={formTags}
+                      onChange={(e) => setFormTags(e.target.value)}
+                      placeholder="Financial Proposals, Pricing, Commercials"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Description / Commercial Notes */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Usage Guide & Commercial Notes
@@ -960,37 +1431,58 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                   rows={3}
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
-                  placeholder="Explain when this financial proposal should be used, key commercial clauses, or guidelines for sales representatives..."
+                  placeholder="Explain when this template should be used, key commercial clauses, or guidelines for sales representatives..."
                   className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none leading-relaxed"
                 />
               </div>
 
               {/* Modal Actions */}
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsUploadModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUploading}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md transition disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
-                >
-                  {isUploading ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{editingTemplate ? "Update Template" : "Publish Template"}</span>
-                    </>
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div className="text-[11px] text-slate-500">
+                  {!editingTemplate && queuedFiles.length > 0 && (
+                    <span>
+                      Ready to upload <strong className="text-slate-800 dark:text-slate-200">{queuedFiles.length}</strong> template{queuedFiles.length > 1 ? "s" : ""}
+                    </span>
                   )}
-                </button>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsUploadModalOpen(false)}
+                    disabled={isUploading}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUploading || (!editingTemplate && queuedFiles.length === 0)}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md transition disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
+                  >
+                    {isUploading ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>
+                          {uploadProgress
+                            ? `Uploading (${uploadProgress.current}/${uploadProgress.total})...`
+                            : "Saving..."}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>
+                          {editingTemplate
+                            ? "Update Template"
+                            : queuedFiles.length > 1
+                            ? `Publish ${queuedFiles.length} Templates`
+                            : "Publish Template"}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
