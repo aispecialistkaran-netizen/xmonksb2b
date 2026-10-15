@@ -820,7 +820,9 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                             type="button"
                             onClick={async () => {
                               if (confirm(`Are you sure you want to delete "${template.title}"?`)) {
+                                setTemplates((prev) => prev.filter((t) => t.id !== template.id));
                                 await deleteTemplate(template.id);
+                                setSuccessToast(`Deleted "${template.title}" successfully.`);
                               }
                             }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
@@ -1028,8 +1030,10 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  if (confirm(`Delete "${template.title}"?`)) {
+                                  if (confirm(`Are you sure you want to delete "${template.title}"?`)) {
+                                    setTemplates((prev) => prev.filter((t) => t.id !== template.id));
                                     await deleteTemplate(template.id);
+                                    setSuccessToast(`Deleted "${template.title}" successfully.`);
                                   }
                                 }}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 transition cursor-pointer"

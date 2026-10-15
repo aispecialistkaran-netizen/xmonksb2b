@@ -14,6 +14,31 @@ import { formatBytes } from "./formatters";
 const TEMPLATES_COLLECTION = "b2b_templates";
 const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v5";
 const DEPRECATED_TEMPLATE_IDS = new Set(["tpl-icici-fin-prop-02", "tpl-icici-zsm-prop-03"]);
+const DELETED_TEMPLATES_STORAGE_KEY = "xmonks_b2b_deleted_template_ids_v1";
+
+export function getDeletedTemplateIds(): Set<string> {
+  const set = new Set<string>(DEPRECATED_TEMPLATE_IDS);
+  if (typeof window === "undefined") return set;
+  try {
+    const raw = localStorage.getItem(DELETED_TEMPLATES_STORAGE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        arr.forEach((id) => set.add(id));
+      }
+    }
+  } catch {}
+  return set;
+}
+
+export function recordDeletedTemplateId(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const set = getDeletedTemplateIds();
+    set.add(id);
+    localStorage.setItem(DELETED_TEMPLATES_STORAGE_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
 
 export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
   // --- 1. Product Workshops & Profile Brochures ---
@@ -390,17 +415,21 @@ export const INITIAL_TEMPLATES: TemplateItem[] = [
  * Get templates from localStorage with fallback to INITIAL_TEMPLATES
  */
 export function getStoredTemplates(): TemplateItem[] {
-  if (typeof window === "undefined") return INITIAL_TEMPLATES;
+  const deletedIds = getDeletedTemplateIds();
+  if (typeof window === "undefined") {
+    return INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id));
+  }
   try {
     const raw = localStorage.getItem(TEMPLATES_STORAGE_KEY);
     if (raw) {
       let parsed: TemplateItem[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Filter out any deprecated/removed sample templates
-        parsed = parsed.filter((t) => !DEPRECATED_TEMPLATE_IDS.has(t.id));
+        // Filter out any deleted/deprecated templates
+        parsed = parsed.filter((t) => !deletedIds.has(t.id));
 
-        // Ensure all INITIAL_TEMPLATES are present and up to date with latest category & metadata
+        // Ensure all INITIAL_TEMPLATES (except deleted ones) are present and up to date
         INITIAL_TEMPLATES.forEach((seedTpl) => {
+          if (deletedIds.has(seedTpl.id)) return; // DO NOT RESURRECT DELETED TEMPLATES!
           const idx = parsed.findIndex((t) => t.id === seedTpl.id);
           if (idx >= 0) {
             parsed[idx] = {
@@ -416,11 +445,12 @@ export function getStoredTemplates(): TemplateItem[] {
         return parsed;
       }
     }
-    saveLocalTemplates(INITIAL_TEMPLATES);
-    return INITIAL_TEMPLATES;
+    const initialNonDeleted = INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id));
+    saveLocalTemplates(initialNonDeleted);
+    return initialNonDeleted;
   } catch (e) {
     console.warn("Failed to read templates from localStorage", e);
-    return INITIAL_TEMPLATES;
+    return INITIAL_TEMPLATES.filter((t) => !deletedIds.has(t.id));
   }
 }
 
@@ -430,7 +460,8 @@ export function getStoredTemplates(): TemplateItem[] {
 export function saveLocalTemplates(templates: TemplateItem[]): void {
   if (typeof window === "undefined") return;
   try {
-    const sanitized = templates.filter((t) => !DEPRECATED_TEMPLATE_IDS.has(t.id));
+    const deletedIds = getDeletedTemplateIds();
+    const sanitized = templates.filter((t) => !deletedIds.has(t.id));
     localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(sanitized));
   } catch (e) {
     console.warn("Failed to save templates to localStorage", e);
@@ -452,18 +483,22 @@ export function subscribeToTemplates(callback: (templates: TemplateItem[]) => vo
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        const deletedIds = getDeletedTemplateIds();
         if (!snapshot.empty) {
           const list: TemplateItem[] = [];
           snapshot.forEach((d) => {
-            if (DEPRECATED_TEMPLATE_IDS.has(d.id)) {
-              // Delete deprecated template from Firestore
+            const data = d.data();
+            if (deletedIds.has(d.id) || data?.isDeleted) {
+              // Track deleted and purge from Firestore if still exists
+              recordDeletedTemplateId(d.id);
               deleteDoc(doc(db, TEMPLATES_COLLECTION, d.id)).catch(() => {});
             } else {
-              list.push({ id: d.id, ...d.data() } as TemplateItem);
+              list.push({ id: d.id, ...data } as TemplateItem);
             }
           });
-          // Ensure seed templates are included and up to date
+          // Ensure seed templates are included UNLESS deleted by user
           INITIAL_TEMPLATES.forEach((seedTpl) => {
+            if (deletedIds.has(seedTpl.id)) return; // DO NOT RESURRECT
             const idx = list.findIndex((t) => t.id === seedTpl.id);
             if (idx >= 0) {
               list[idx] = {
@@ -477,11 +512,13 @@ export function subscribeToTemplates(callback: (templates: TemplateItem[]) => vo
           saveLocalTemplates(list);
           callback(list);
         } else {
-          // If Firestore is empty, seed it with INITIAL_TEMPLATES
+          // If Firestore is empty, seed it with non-deleted INITIAL_TEMPLATES
           INITIAL_TEMPLATES.forEach((tpl) => {
-            setDoc(doc(db, TEMPLATES_COLLECTION, tpl.id), tpl, { merge: true }).catch(() => {});
+            if (!deletedIds.has(tpl.id)) {
+              setDoc(doc(db, TEMPLATES_COLLECTION, tpl.id), tpl, { merge: true }).catch(() => {});
+            }
           });
-          callback(localDocs);
+          callback(getStoredTemplates());
         }
       },
       (err) => {
@@ -549,11 +586,14 @@ export async function saveTemplatesBatch(newTemplates: TemplateItem[]): Promise<
  * Delete a template (Admin only)
  */
 export async function deleteTemplate(id: string): Promise<void> {
+  recordDeletedTemplateId(id);
   const current = getStoredTemplates();
   const updated = current.filter((t) => t.id !== id);
   saveLocalTemplates(updated);
 
   try {
+    // Record tombstone in Firestore so other sessions don't resurrect it
+    await setDoc(doc(db, TEMPLATES_COLLECTION, id), { isDeleted: true }, { merge: true });
     await deleteDoc(doc(db, TEMPLATES_COLLECTION, id));
   } catch (e) {
     console.warn("Failed to delete template from Firestore", e);
