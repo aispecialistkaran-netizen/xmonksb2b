@@ -129,8 +129,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     "tenure" | "pipeline_data" | "coaches" | "signoff"
   >("tenure");
 
-  // Delivery View Mode Switcher: Financial Realization Table vs Operations Table vs Interactive Gantt Timeline View
-  const [deliveryViewMode, setDeliveryViewMode] = useState<"financial" | "table" | "timeline">("financial");
+  // Delivery View Mode Switcher: Operations Table vs Interactive Gantt Timeline View
+  const [deliveryViewMode, setDeliveryViewMode] = useState<"table" | "timeline">("table");
 
   // Contract Sub-View Switcher (when tenure is contract)
   const [contractSubView, setContractSubView] = useState<"all" | "milestones" | "terms">("all");
@@ -4514,21 +4514,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               <option value="on_hold">On Hold</option>
             </select>
 
-            {/* View Mode Switcher: Financial Realization Table vs Operations Table vs Gantt Roadmap */}
+            {/* View Mode Switcher: Operations Table vs Gantt Roadmap */}
             <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-              <button
-                type="button"
-                onClick={() => setDeliveryViewMode("financial")}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  deliveryViewMode === "financial"
-                    ? "bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
-                title="Delivery Accounts & Financial Realization Table with interactive milestone tranches"
-              >
-                <Receipt className="w-3.5 h-3.5" />
-                <span>Realization Table</span>
-              </button>
               <button
                 type="button"
                 onClick={() => setDeliveryViewMode("table")}
@@ -4563,13 +4550,6 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           <DeliveryTimelineView
             records={filteredRecords}
             onSelectRecord={handleSelectRecord}
-          />
-        ) : deliveryViewMode === "financial" ? (
-          <DeliveryFinancialRealizationTable
-            records={filteredRecords}
-            allLeads={allLeads}
-            onSelectRecord={handleSelectRecord}
-            activeRecordId={selectedRecordId}
           />
         ) : filteredRecords.length === 0 ? (
           <div className="py-12 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
