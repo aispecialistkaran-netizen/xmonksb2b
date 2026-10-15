@@ -488,7 +488,31 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       .sort((a, b) => a.monthSortKey.localeCompare(b.monthSortKey));
   }, [accessibleDeliveryRecords, getRecordMonthInfo]);
 
-  // Accessible records scoped by selectedMonthFilter (used for Owner Performance Matrix & Tenure Insights)
+  // List of all unique lead owners (across all accessible records)
+  const allLeadOwnersList = useMemo(() => {
+    const map = new Map<string, { owner: string; accountsCount: number }>();
+    accessibleDeliveryRecords.forEach((r) => {
+      const rowMatchingLead =
+        allLeads.find((l) => l.id === r.leadId) ||
+        leads.find((l) => l.id === r.leadId) ||
+        allLeads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        ) ||
+        leads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        );
+      const ownerName = r.clientPartner || rowMatchingLead?.owner || "Unassigned";
+      const existing = map.get(ownerName);
+      if (!existing) {
+        map.set(ownerName, { owner: ownerName, accountsCount: 1 });
+      } else {
+        existing.accountsCount += 1;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.accountsCount - a.accountsCount);
+  }, [accessibleDeliveryRecords, allLeads, leads]);
+
+  // Accessible records scoped by selectedMonthFilter (used for Owner Performance Matrix & trajectory)
   const recordsForAnalytics = useMemo(() => {
     if (selectedMonthFilter === "all") return accessibleDeliveryRecords;
     return accessibleDeliveryRecords.filter((r) => {
@@ -496,6 +520,27 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
       return monthKey.toLowerCase() === selectedMonthFilter.toLowerCase();
     });
   }, [accessibleDeliveryRecords, selectedMonthFilter, getRecordMonthInfo]);
+
+  // Accessible records scoped by BOTH selectedMonthFilter AND selectedOwnerFilter
+  const realizationRecords = useMemo(() => {
+    return recordsForAnalytics.filter((r) => {
+      if (!isAdmin || selectedOwnerFilter === "all") return true;
+      const rowMatchingLead =
+        allLeads.find((l) => l.id === r.leadId) ||
+        leads.find((l) => l.id === r.leadId) ||
+        allLeads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        ) ||
+        leads.find(
+          (l) => l.companyName.trim().toLowerCase() === r.companyName.trim().toLowerCase()
+        );
+      const effectiveOwner = r.clientPartner || rowMatchingLead?.owner || "Unassigned";
+      return (
+        effectiveOwner.toLowerCase() === selectedOwnerFilter.toLowerCase() ||
+        (r.clientPartner && r.clientPartner.toLowerCase() === selectedOwnerFilter.toLowerCase())
+      );
+    });
+  }, [recordsForAnalytics, isAdmin, selectedOwnerFilter, allLeads, leads]);
 
   // Aggregated Lead Owner Performance Matrix (Tabular Data, respects active month filter)
   const ownerPerformanceList = useMemo(() => {
@@ -590,7 +635,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     return { accounts, totalMoney, receivedMoney, remainingMoney, realizationRate, avgDealSize };
   }, [ownerPerformanceList]);
 
-  // Tenure Model Comparison Insights (scoped to month filter if active)
+  // Tenure Model Comparison Insights (scoped to month and owner filter if active)
   const tenureModelInsights = useMemo(() => {
     let deliveryModelAccounts = 0;
     let deliveryModelMoney = 0;
@@ -604,7 +649,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     let contractMoney = 0;
     let contractReceived = 0;
 
-    recordsForAnalytics.forEach((r) => {
+    realizationRecords.forEach((r) => {
       const fin = getRecordFinancials(r);
       if (r.tenureType === "delivery") {
         deliveryModelAccounts += 1;
@@ -644,7 +689,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
         rate: contractMoney > 0 ? (contractReceived / contractMoney) * 100 : 0,
       },
     };
-  }, [recordsForAnalytics]);
+  }, [realizationRecords]);
 
   // Filtered records
   const filteredRecords = useMemo(() => {
@@ -1425,8 +1470,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                       : "My Delivery Revenue & Portfolio Matrix"}
                   </span>
                   {isAdmin && selectedOwnerFilter !== "all" && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                      Owner: {selectedOwnerFilter}
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center space-x-1">
+                      <span>Owner: {selectedOwnerFilter}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOwnerFilter("all")}
+                        className="hover:text-rose-600 transition cursor-pointer"
+                        title="Clear owner filter"
+                      >
+                        <X className="w-2.5 h-2.5 ml-0.5" />
+                      </button>
                     </span>
                   )}
                   {selectedMonthFilter !== "all" && (
@@ -1489,6 +1542,43 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                 </div>
               )}
 
+              {/* Admin Lead Owner Filter Dropdown in Executive Analytics Header */}
+              {isAdmin && (
+                <div
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition ${
+                    selectedOwnerFilter !== "all"
+                      ? "bg-indigo-50 dark:bg-indigo-950/70 border-indigo-400 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20 shadow-xs"
+                      : "bg-slate-100 dark:bg-slate-800/80 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Lead Owner:</span>
+                  <select
+                    value={selectedOwnerFilter}
+                    onChange={(e) => setSelectedOwnerFilter(e.target.value)}
+                    className="bg-transparent font-black outline-none cursor-pointer text-xs"
+                    title="Filter revenue analytics & projects by Lead Owner"
+                  >
+                    <option value="all">All Lead Owners ({allLeadOwnersList.length})</option>
+                    {allLeadOwnersList.map((o) => (
+                      <option key={o.owner} value={o.owner} className="text-slate-900 bg-white dark:bg-slate-900">
+                        {o.owner} ({o.accountsCount} {o.accountsCount === 1 ? "project" : "projects"})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedOwnerFilter !== "all" && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOwnerFilter("all")}
+                      className="p-0.5 text-slate-400 hover:text-rose-500 rounded transition cursor-pointer"
+                      title="Clear lead owner filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Tab Selector Buttons */}
               <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700 text-xs font-bold overflow-x-auto scrollbar-thin">
                 <button
@@ -1506,7 +1596,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   <Receipt className="w-3.5 h-3.5 text-emerald-500" />
                   <span>Realization Report</span>
                   <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold">
-                    {recordsForAnalytics.length}
+                    {realizationRecords.length}
                   </span>
                 </button>
 
@@ -1634,12 +1724,16 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               {headerAnalyticsTab === "realization_report" && (
                 <div className="space-y-3">
                   <DeliveryFinancialRealizationTable
-                    records={recordsForAnalytics}
+                    records={realizationRecords}
                     allLeads={allLeads}
                     onSelectRecord={handleSelectRecord}
                     title={
-                      selectedMonthFilter !== "all"
+                      selectedMonthFilter !== "all" && selectedOwnerFilter !== "all"
+                        ? `DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE (${selectedMonthFilter.toUpperCase()} • ${selectedOwnerFilter.toUpperCase()})`
+                        : selectedMonthFilter !== "all"
                         ? `DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE (${selectedMonthFilter.toUpperCase()})`
+                        : selectedOwnerFilter !== "all"
+                        ? `DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE (${selectedOwnerFilter.toUpperCase()})`
                         : "DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE"
                     }
                     activeRecordId={selectedRecordId}
@@ -2136,7 +2230,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               {/* TAB 4: AGING RECEIVABLES & DELIVERY RISK RADAR */}
               {headerAnalyticsTab === "risk_radar" && (
                 <DeliveryRiskRadar
-                  records={recordsForAnalytics}
+                  records={realizationRecords}
                   agingSummary={agingReceivablesSummary}
                   healthSummary={deliveryHealthSummary}
                   onSelectRecord={handleSelectRecord}
@@ -4329,9 +4423,9 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                   title="Admin Filter by Lead Owner"
                 >
                   <option value="all">
-                    All Lead Owners ({ownerPerformanceList.length})
+                    All Lead Owners ({allLeadOwnersList.length})
                   </option>
-                  {ownerPerformanceList.map((o) => (
+                  {allLeadOwnersList.map((o) => (
                     <option key={o.owner} value={o.owner}>
                       {o.owner} ({o.accountsCount} {o.accountsCount === 1 ? "account" : "accounts"})
                     </option>
