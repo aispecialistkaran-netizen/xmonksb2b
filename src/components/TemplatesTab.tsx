@@ -760,6 +760,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           {filteredTemplates.map((template) => {
             const fileBadge = getFileTypeBadge(template.fileType);
             const FileIcon = fileBadge.icon;
+            const catConfig = TEMPLATE_CATEGORIES.find((c) => c.id === template.category);
 
             return (
               <div
@@ -775,7 +776,13 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                       >
                         {fileBadge.label}
                       </span>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                          catConfig
+                            ? `${catConfig.badgeBg} ${catConfig.badgeText} ${catConfig.borderColor}`
+                            : "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                        }`}
+                      >
                         {template.categoryLabel}
                       </span>
                       {template.version && (
@@ -922,6 +929,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredTemplates.map((template) => {
                   const fileBadge = getFileTypeBadge(template.fileType);
+                  const catConfig = TEMPLATE_CATEGORIES.find((c) => c.id === template.category);
 
                   return (
                     <tr
@@ -949,7 +957,13 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
 
                       {/* Category */}
                       <td className="py-3.5 px-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 whitespace-nowrap">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${
+                            catConfig
+                              ? `${catConfig.badgeBg} ${catConfig.badgeText} ${catConfig.borderColor}`
+                              : "bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                          }`}
+                        >
                           {template.categoryLabel}
                         </span>
                       </td>

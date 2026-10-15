@@ -12,7 +12,7 @@ import { TemplateItem, TemplateCategory, TEMPLATE_CATEGORIES } from "@/types/tem
 import { formatBytes } from "./formatters";
 
 const TEMPLATES_COLLECTION = "b2b_templates";
-const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v4";
+const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v5";
 const DEPRECATED_TEMPLATE_IDS = new Set(["tpl-icici-fin-prop-02", "tpl-icici-zsm-prop-03"]);
 
 export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
@@ -25,7 +25,7 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSizeBytes: 1301691,
     fileType: "pdf",
     category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    categoryLabel: "Product and Induction Materials",
     description:
       "Official workshop brochure for Coach Maturity in India with pioneer Prof. David Clutterbuck and Gaurav Arora. Covers models-based, process-based, and systemic eclectic coaching evolution.",
     downloadUrl: "/templates/Coach%20Maturity%20-%20David%20Clutterbuck%20(2025).pdf",
@@ -46,7 +46,7 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSizeBytes: 2057955,
     fileType: "pdf",
     category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    categoryLabel: "Product and Induction Materials",
     description:
       "Workshop overview for business and HR leaders: high-performing team evolution, psychological safety, managing self in multiple teams, and rapid agile teaming processes.",
     downloadUrl: "/templates/Rapid%20Teaming%20-%20Dr%20David%20Clutterbuck%20(2025).pdf",
@@ -67,7 +67,7 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSizeBytes: 301528,
     fileType: "pdf",
     category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    categoryLabel: "Product and Induction Materials",
     description:
       "Comprehensive product guide to the Leadership Circle Profile 360 assessment: connecting patterns of action with habits of thought, Creative Competencies vs. Reactive Tendencies, and leadership effectiveness.",
     downloadUrl: "/templates/Leadership%20Circle%20Profile%20(LCP)%20-%20Assessment%20Brochure.pdf",
@@ -88,7 +88,7 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSizeBytes: 2029790,
     fileType: "pdf",
     category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    categoryLabel: "Product and Induction Materials",
     description:
       "Program guide for School of Emotions & xMonks partnership: Dan Newby methodology for emotional literacy, 12 CCEUs, emotional distinctions, and linguistic framework for executive coaches.",
     downloadUrl: "/templates/Emotions-Centred%20Coaching%20Program%20-%20School%20of%20Emotions.pdf",
@@ -109,7 +109,7 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSizeBytes: 1626166,
     fileType: "pdf",
     category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    categoryLabel: "Product and Induction Materials",
     description:
       "Flagship 2-day leadership development intervention rooted in Adaptive Mindset, Performance Equation (Interference removal), 6 A Coaching Model, and Growth Multiplier competencies.",
     downloadUrl: "/templates/Leaders%20as%20Growth%20Catalysts%20-%20Program%20Brochure.pdf",
@@ -122,8 +122,9 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     downloadCount: 38,
     version: "2025",
   },
+];
 
-  // --- 2. Approach Notes & Induction Frameworks ---
+export const APPROACH_NOTES_TEMPLATES: TemplateItem[] = [
   {
     id: "tpl-app-sales-mastery-banking",
     title: "Approach Note – Sales Mastery for Trusted Banking Relationships",
@@ -131,8 +132,8 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSize: "1.5 MB",
     fileSizeBytes: 1587262,
     fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    category: "approach_notes",
+    categoryLabel: "Approach Notes",
     description:
       "10-page comprehensive induction and sales mastery approach note: moving from transactional conversations to advisory client partnerships in BFSI.",
     downloadUrl:
@@ -153,8 +154,8 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSize: "3.7 MB",
     fileSizeBytes: 3747370,
     fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    category: "approach_notes",
+    categoryLabel: "Approach Notes",
     description:
       "Transformational learning journey for branch managers: self-management, high-impact daily routines, emotional poise, and customer delight standards.",
     downloadUrl:
@@ -175,8 +176,8 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSize: "4.6 MB",
     fileSizeBytes: 4686112,
     fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    category: "approach_notes",
+    categoryLabel: "Approach Notes",
     description:
       "Organizational ethics, psychological resilience, authentic character development, and values-driven execution framework for leadership cohorts.",
     downloadUrl:
@@ -197,8 +198,8 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSize: "6.1 MB",
     fileSizeBytes: 6244226,
     fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    category: "approach_notes",
+    categoryLabel: "Approach Notes",
     description:
       "Core curriculum approach note: 4 pillars of modern leadership (leading self, leading teams, strategic business thinking, and organizational design).",
     downloadUrl:
@@ -219,8 +220,8 @@ export const PRODUCT_INDUCTION_TEMPLATES: TemplateItem[] = [
     fileSize: "4.9 MB",
     fileSizeBytes: 4975156,
     fileType: "pdf",
-    category: "product_induction_materials",
-    categoryLabel: "Product & Induction Materials",
+    category: "approach_notes",
+    categoryLabel: "Approach Notes",
     description:
       "Why coaching? What coaches excel at doing. Foundational playbook to equip enterprise executives with coaching dialogues, active enquiry, and autonomy enablement.",
     downloadUrl:
@@ -381,6 +382,7 @@ export const INITIAL_TEMPLATES: TemplateItem[] = [
     version: "v2.4",
   },
   ...PRODUCT_INDUCTION_TEMPLATES,
+  ...APPROACH_NOTES_TEMPLATES,
   ...CASE_STUDIES_TEMPLATES,
 ];
 
