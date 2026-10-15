@@ -41,14 +41,22 @@ import {
   Square,
   MinusSquare,
   SlidersHorizontal,
+  Palette,
+  FolderPlus,
 } from "lucide-react";
 import {
   TemplateItem,
   TemplateCategory,
+  TemplateCategoryConfig,
   TEMPLATE_CATEGORIES,
+  CATEGORY_COLOR_PRESETS,
 } from "@/types/template";
 import {
   subscribeToTemplates,
+  subscribeToCategories,
+  getStoredCategories,
+  saveCategory,
+  deleteCustomCategory,
   saveTemplate,
   saveTemplatesBatch,
   deleteTemplate,
@@ -131,14 +139,28 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
   const [bulkPinAction, setBulkPinAction] = useState<"keep" | "pin" | "unpin">("keep");
   const [isBulkApplying, setIsBulkApplying] = useState<boolean>(false);
 
+  // Category State & Custom Categories
+  const [categories, setCategories] = useState<TemplateCategoryConfig[]>(() => getStoredCategories());
+  const [isCreateCategoryModalOpen, setIsCreateCategoryModalOpen] = useState<boolean>(false);
+  const [newCategoryName, setNewCategoryName] = useState<string>("");
+  const [selectedColorPresetIndex, setSelectedColorPresetIndex] = useState<number>(0);
+  const [newCategoryError, setNewCategoryError] = useState<string | null>(null);
+  const [isCreatingCategory, setIsCreatingCategory] = useState<boolean>(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Real-time synchronization
+  // Real-time synchronization for templates and categories
   useEffect(() => {
-    const unsub = subscribeToTemplates((data) => {
+    const unsubTemplates = subscribeToTemplates((data) => {
       setTemplates(data);
     });
-    return () => unsub();
+    const unsubCategories = subscribeToCategories((catData) => {
+      setCategories(catData);
+    });
+    return () => {
+      unsubTemplates();
+      unsubCategories();
+    };
   }, []);
 
   const isUserAdmin =
@@ -149,11 +171,11 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
   // Category counts
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { all: templates.length };
-    TEMPLATE_CATEGORIES.forEach((c) => {
+    categories.forEach((c) => {
       counts[c.id] = templates.filter((t) => t.category === c.id).length;
     });
     return counts;
-  }, [templates]);
+  }, [templates, categories]);
 
   // Filtered & sorted templates
   const filteredTemplates = useMemo(() => {
@@ -271,14 +293,14 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
   const handleQuickBulkMoveCategory = async (newCategory: TemplateCategory) => {
     if (selectedIds.size === 0) return;
     const count = selectedIds.size;
-    const catObj = TEMPLATE_CATEGORIES.find((c) => c.id === newCategory);
+    const catObj = categories.find((c) => c.id === newCategory);
     setIsBulkApplying(true);
     try {
       await bulkUpdateTemplates(Array.from(selectedIds), {
         category: newCategory,
         categoryLabel: catObj?.label || newCategory,
       });
-      setSuccessToast(`Moved ${count} templates to "${catObj?.label}".`);
+      setSuccessToast(`Moved ${count} templates to "${catObj?.label || newCategory}".`);
       setSelectedIds(new Set());
     } catch (err) {
       console.error("Bulk move error", err);
@@ -334,7 +356,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
     try {
       const updates: Partial<TemplateItem> = {};
       if (bulkCategory !== "keep") {
-        const catObj = TEMPLATE_CATEGORIES.find((c) => c.id === bulkCategory);
+        const catObj = categories.find((c) => c.id === bulkCategory);
         updates.category = bulkCategory as TemplateCategory;
         updates.categoryLabel = catObj?.label || bulkCategory;
       }
@@ -371,6 +393,57 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
     }
   };
 
+  // Create New Category Handler
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) {
+      setNewCategoryError("Please enter a category name.");
+      return;
+    }
+
+    const slug = trimmed
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+    if (!slug) {
+      setNewCategoryError("Please enter a valid category name.");
+      return;
+    }
+
+    if (categories.some((c) => c.id === slug || c.label.toLowerCase() === trimmed.toLowerCase())) {
+      setNewCategoryError("A category with this name already exists.");
+      return;
+    }
+
+    setIsCreatingCategory(true);
+    setNewCategoryError(null);
+
+    try {
+      const preset = CATEGORY_COLOR_PRESETS[selectedColorPresetIndex] || CATEGORY_COLOR_PRESETS[0];
+      const newCat: TemplateCategoryConfig = {
+        id: slug,
+        label: trimmed,
+        badgeBg: preset.badgeBg,
+        badgeText: preset.badgeText,
+        borderColor: preset.borderColor,
+        icon: "Folder",
+        isCustom: true,
+      };
+
+      await saveCategory(newCat);
+      setSuccessToast(`Category "${trimmed}" created successfully.`);
+      setIsCreateCategoryModalOpen(false);
+      setNewCategoryName("");
+      setSelectedCategory(slug);
+    } catch (err: any) {
+      setNewCategoryError(err.message || "Failed to create category.");
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  };
+
   // Open Upload / Edit Modal
   const openUploadModal = (template?: TemplateItem, defaultCategory?: TemplateCategory) => {
     const activeTabCategory: TemplateCategory =
@@ -395,7 +468,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
       setFormTitle("");
       setFormCategory(activeTabCategory);
       setFormDescription("");
-      const categoryObj = TEMPLATE_CATEGORIES.find((c) => c.id === activeTabCategory);
+      const categoryObj = categories.find((c) => c.id === activeTabCategory);
       setFormTags(categoryObj ? `${categoryObj.label}, Enterprise` : "Template, Enterprise");
       setFormVersion("v1.0");
       setFormFileName("");
@@ -537,7 +610,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
       setFormError(null);
 
       try {
-        const categoryObj = TEMPLATE_CATEGORIES.find((c) => c.id === formCategory);
+        const categoryObj = categories.find((c) => c.id === formCategory);
         const parsedTags = formTags
           .split(",")
           .map((t) => t.trim())
@@ -627,7 +700,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           downloadUrl = URL.createObjectURL(qf.file);
         }
 
-        const categoryObj = TEMPLATE_CATEGORIES.find((c) => c.id === qf.category);
+        const categoryObj = categories.find((c) => c.id === qf.category);
 
         templatesToSave.push({
           id: `tpl-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
@@ -637,7 +710,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           fileSizeBytes: qf.fileSizeBytes,
           fileType: qf.fileType,
           category: qf.category,
-          categoryLabel: categoryObj?.label || "Financial Proposals",
+          categoryLabel: categoryObj?.label || qf.category,
           description: formDescription.trim(),
           downloadUrl,
           uploadedBy: currentUser?.name || "Admin",
@@ -798,7 +871,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
               Categories
             </span>
             <span className="text-xl font-black text-white">
-              {TEMPLATE_CATEGORIES.length}
+              {categories.length}
             </span>
             <span className="text-[10px] text-indigo-300 block">Enterprise Asset Types</span>
           </div>
@@ -822,32 +895,70 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           </span>
         </button>
 
-        {TEMPLATE_CATEGORIES.map((cat) => {
+        {categories.map((cat) => {
           const count = categoryCounts[cat.id] || 0;
           const isSelected = selectedCategory === cat.id;
 
           return (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3.5 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 border ${
-                isSelected
-                  ? `${cat.badgeBg} ${cat.badgeText} ${cat.borderColor} ring-2 ring-emerald-500 shadow-sm`
-                  : "bg-white dark:bg-slate-850 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
-              }`}
-            >
-              <span>{cat.label}</span>
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                  isSelected ? "bg-black/10 dark:bg-white/10" : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+            <div key={cat.id} className="relative group/pill flex items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-3.5 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 border ${
+                  isSelected
+                    ? `${cat.badgeBg} ${cat.badgeText} ${cat.borderColor} ring-2 ring-emerald-500 shadow-sm`
+                    : "bg-white dark:bg-slate-850 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
                 }`}
               >
-                {count}
-              </span>
-            </button>
+                <span>{cat.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    isSelected ? "bg-black/10 dark:bg-white/10" : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+
+              {/* If custom category, allow admin to delete it */}
+              {isUserAdmin && cat.isCustom && (
+                <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete custom category "${cat.label}"? Templates in this category will remain safe in the library.`)) {
+                      await deleteCustomCategory(cat.id);
+                      if (selectedCategory === cat.id) setSelectedCategory("all");
+                      setSuccessToast(`Deleted category "${cat.label}".`);
+                    }
+                  }}
+                  className="ml-1 p-1 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 opacity-0 group-hover/pill:opacity-100 transition cursor-pointer"
+                  title={`Delete category "${cat.label}"`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           );
         })}
+
+        {/* Create New Category Action */}
+        {isUserAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              setNewCategoryName("");
+              setSelectedColorPresetIndex(0);
+              setNewCategoryError(null);
+              setIsCreateCategoryModalOpen(true);
+            }}
+            className="px-3.5 py-2 rounded-2xl text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border-2 border-dashed border-emerald-300 dark:border-emerald-700 transition flex items-center space-x-1.5 whitespace-nowrap cursor-pointer shrink-0 active:scale-95 shadow-xs"
+            title="Create new category"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Category</span>
+          </button>
+        )}
       </div>
 
       {/* Search, Sort & View Mode Controls Bar */}
@@ -989,7 +1100,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           {filteredTemplates.map((template) => {
             const fileBadge = getFileTypeBadge(template.fileType);
             const FileIcon = fileBadge.icon;
-            const catConfig = TEMPLATE_CATEGORIES.find((c) => c.id === template.category);
+            const catConfig = categories.find((c) => c.id === template.category);
             const isSelected = selectedIds.has(template.id);
 
             return (
@@ -1201,7 +1312,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredTemplates.map((template) => {
                   const fileBadge = getFileTypeBadge(template.fileType);
-                  const catConfig = TEMPLATE_CATEGORIES.find((c) => c.id === template.category);
+                  const catConfig = categories.find((c) => c.id === template.category);
                   const isSelected = selectedIds.has(template.id);
 
                   return (
@@ -1568,7 +1679,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                                 }
                                 className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                               >
-                                {TEMPLATE_CATEGORIES.map((c) => (
+                                {categories.map((c) => (
                                   <option key={c.id} value={c.id}>
                                     {c.label}
                                   </option>
@@ -1610,15 +1721,32 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Category *
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Category *
+                      </label>
+                      {isUserAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewCategoryName("");
+                            setSelectedColorPresetIndex(0);
+                            setNewCategoryError(null);
+                            setIsCreateCategoryModalOpen(true);
+                          }}
+                          className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <Plus className="w-2.5 h-2.5" />
+                          <span>New Category</span>
+                        </button>
+                      )}
+                    </div>
                     <select
                       value={formCategory}
                       onChange={(e) => setFormCategory(e.target.value as TemplateCategory)}
                       className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
                     >
-                      {TEMPLATE_CATEGORIES.map((c) => (
+                      {categories.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.label}
                         </option>
@@ -1649,9 +1777,26 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Default Category *
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                          Default Category *
+                        </label>
+                        {isUserAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewCategoryName("");
+                              setSelectedColorPresetIndex(0);
+                              setNewCategoryError(null);
+                              setIsCreateCategoryModalOpen(true);
+                            }}
+                            className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 flex items-center gap-0.5 cursor-pointer"
+                          >
+                            <Plus className="w-2.5 h-2.5" />
+                            <span>New Category</span>
+                          </button>
+                        )}
+                      </div>
                       <select
                         value={formCategory}
                         onChange={(e) => {
@@ -1660,7 +1805,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                         }}
                         className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
                       >
-                        {TEMPLATE_CATEGORIES.map((c) => (
+                        {categories.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.label}
                           </option>
@@ -1828,7 +1973,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
               <option value="" disabled>
                 Change Category...
               </option>
-              {TEMPLATE_CATEGORIES.map((c) => (
+              {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.label}
                 </option>
@@ -1947,7 +2092,7 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold cursor-pointer"
                 >
                   <option value="keep">Keep Existing Categories</option>
-                  {TEMPLATE_CATEGORIES.map((c) => (
+                  {categories.map((c) => (
                     <option key={c.id} value={c.id}>
                       Move all to: {c.label}
                     </option>
@@ -2117,7 +2262,154 @@ export const TemplatesTab: React.FC<TemplatesTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* CREATE NEW CATEGORY MODAL */}
+      {isCreateCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-5 animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  <FolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Create New Category
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Add a custom category to organize corporate templates.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateCategoryModalOpen(false)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleCreateCategory} className="space-y-4">
+              {newCategoryError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{newCategoryError}</span>
+                </div>
+              )}
+
+              {/* Name Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Category Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Sales Playbooks, Compliance"
+                  value={newCategoryName}
+                  onChange={(e) => {
+                    setNewCategoryName(e.target.value);
+                    if (newCategoryError) setNewCategoryError(null);
+                  }}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                  autoFocus
+                />
+                {newCategoryName.trim() && (
+                  <p className="text-[10px] text-slate-400">
+                    Identifier: <code className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">{newCategoryName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "..."}</code>
+                  </p>
+                )}
+              </div>
+
+              {/* Color Theme Presets */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>Badge Color Style</span>
+                  <Palette className="w-3.5 h-3.5 text-slate-400" />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {CATEGORY_COLOR_PRESETS.map((preset, idx) => {
+                    const isSelected = selectedColorPresetIndex === idx;
+                    return (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => setSelectedColorPresetIndex(idx)}
+                        className={`p-2 rounded-xl border text-left text-xs font-bold transition flex items-center justify-between cursor-pointer ${
+                          isSelected
+                            ? "border-emerald-500 ring-2 ring-emerald-500/30 bg-slate-50 dark:bg-slate-800"
+                            : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                        }`}
+                      >
+                        <span className="flex items-center space-x-2">
+                          <span className={`w-3 h-3 rounded-full ${preset.dotBg}`} />
+                          <span className="text-[11px] text-slate-700 dark:text-slate-300 font-medium">
+                            {preset.name.split("/")[0].trim()}
+                          </span>
+                        </span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Live Preview */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Live Preview
+                </span>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const preset = CATEGORY_COLOR_PRESETS[selectedColorPresetIndex] || CATEGORY_COLOR_PRESETS[0];
+                    return (
+                      <span
+                        className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-black border ${preset.badgeBg} ${preset.badgeText} ${preset.borderColor}`}
+                      >
+                        {newCategoryName.trim() || "Preview Label"}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateCategoryModalOpen(false)}
+                  disabled={isCreatingCategory}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingCategory || !newCategoryName.trim()}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 text-white text-xs font-black shadow-md transition cursor-pointer flex items-center space-x-1.5"
+                >
+                  {isCreatingCategory ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Create Category</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 

@@ -8,13 +8,155 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
-import { TemplateItem, TemplateCategory, TEMPLATE_CATEGORIES } from "@/types/template";
+import {
+  TemplateItem,
+  TemplateCategory,
+  TemplateCategoryConfig,
+  INITIAL_TEMPLATE_CATEGORIES,
+  TEMPLATE_CATEGORIES,
+} from "@/types/template";
 import { formatBytes } from "./formatters";
 
 const TEMPLATES_COLLECTION = "b2b_templates";
 const TEMPLATES_STORAGE_KEY = "xmonks_b2b_templates_v5";
+const CATEGORIES_COLLECTION = "b2b_template_categories";
+const CATEGORIES_STORAGE_KEY = "xmonks_b2b_template_categories_v2";
 const DEPRECATED_TEMPLATE_IDS = new Set(["tpl-icici-fin-prop-02", "tpl-icici-zsm-prop-03"]);
 const DELETED_TEMPLATES_STORAGE_KEY = "xmonks_b2b_deleted_template_ids_v1";
+
+/**
+ * Retrieve categories with localStorage caching and fallback to INITIAL_TEMPLATE_CATEGORIES
+ */
+export function getStoredCategories(): TemplateCategoryConfig[] {
+  if (typeof window === "undefined") return INITIAL_TEMPLATE_CATEGORIES;
+  try {
+    const raw = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+    if (raw) {
+      const parsed: TemplateCategoryConfig[] = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const map = new Map<string, TemplateCategoryConfig>();
+        INITIAL_TEMPLATE_CATEGORIES.forEach((c) => map.set(c.id, c));
+        parsed.forEach((c) => map.set(c.id, c));
+        return Array.from(map.values());
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to read categories from storage", e);
+  }
+  return INITIAL_TEMPLATE_CATEGORIES;
+}
+
+/**
+ * Save categories to localStorage
+ */
+export function saveLocalCategories(categories: TemplateCategoryConfig[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
+  } catch (e) {
+    console.warn("Failed to save categories to storage", e);
+  }
+}
+
+/**
+ * Real-time subscription to template categories
+ */
+export function subscribeToCategories(
+  callback: (categories: TemplateCategoryConfig[]) => void
+): () => void {
+  const local = getStoredCategories();
+  callback(local);
+
+  if (typeof window === "undefined") return () => {};
+
+  try {
+    const q = collection(db, CATEGORIES_COLLECTION);
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const map = new Map<string, TemplateCategoryConfig>();
+        INITIAL_TEMPLATE_CATEGORIES.forEach((c) => map.set(c.id, c));
+
+        if (!snapshot.empty) {
+          snapshot.forEach((d) => {
+            const data = d.data();
+            if (data && data.id && data.label) {
+              map.set(data.id, {
+                id: data.id,
+                label: data.label,
+                badgeBg: data.badgeBg || "bg-emerald-50 dark:bg-emerald-950/70",
+                badgeText: data.badgeText || "text-emerald-700 dark:text-emerald-300",
+                borderColor: data.borderColor || "border-emerald-300 dark:border-emerald-800",
+                icon: data.icon || "Folder",
+                isCustom: true,
+              });
+            }
+          });
+        }
+        const merged = Array.from(map.values());
+        saveLocalCategories(merged);
+        callback(merged);
+      },
+      (err) => {
+        console.warn("Categories subscription error, using local fallback", err.message);
+        callback(getStoredCategories());
+      }
+    );
+    return unsubscribe;
+  } catch (e) {
+    console.warn("Error subscribing to categories", e);
+    return () => {};
+  }
+}
+
+/**
+ * Save / Create new category
+ */
+export async function saveCategory(category: TemplateCategoryConfig): Promise<void> {
+  const current = getStoredCategories();
+  const map = new Map<string, TemplateCategoryConfig>();
+  current.forEach((c) => map.set(c.id, c));
+  map.set(category.id, { ...category, isCustom: true });
+  const updated = Array.from(map.values());
+  saveLocalCategories(updated);
+
+  try {
+    await setDoc(
+      doc(db, CATEGORIES_COLLECTION, category.id),
+      {
+        id: category.id,
+        label: category.label,
+        badgeBg: category.badgeBg,
+        badgeText: category.badgeText,
+        borderColor: category.borderColor,
+        icon: category.icon || "Folder",
+        isCustom: true,
+        createdAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("Failed to sync category to Firestore", e);
+  }
+}
+
+/**
+ * Delete custom category (built-in categories cannot be deleted)
+ */
+export async function deleteCustomCategory(categoryId: string): Promise<void> {
+  const isBuiltIn = INITIAL_TEMPLATE_CATEGORIES.some((c) => c.id === categoryId);
+  if (isBuiltIn) return;
+
+  const current = getStoredCategories();
+  const updated = current.filter((c) => c.id !== categoryId);
+  saveLocalCategories(updated);
+
+  try {
+    await deleteDoc(doc(db, CATEGORIES_COLLECTION, categoryId));
+  } catch (e) {
+    console.warn("Failed to delete category from Firestore", e);
+  }
+}
 
 export function getDeletedTemplateIds(): Set<string> {
   const set = new Set<string>(DEPRECATED_TEMPLATE_IDS);
