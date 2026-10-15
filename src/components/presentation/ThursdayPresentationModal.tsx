@@ -45,6 +45,7 @@ import {
   PieChart,
   Table,
   CheckSquare,
+  Presentation,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { Lead, LeadStage } from "@/types/lead";
@@ -52,7 +53,6 @@ import { DeliveryRecord } from "@/types/delivery";
 import { UserAccount, VALID_USERS, isSameOwner, getCanonicalOwnerName } from "@/constants/users";
 import { STAGES } from "@/constants/stages";
 import { formatINR } from "@/lib/formatters";
-import { DogMascotPresenter, playProceduralBark, DogMascotMood } from "./DogMascotPresenter";
 import { ProjectProgressBar } from "@/components/ProjectProgressBar";
 import { getStoredDeliveryRecords } from "@/lib/deliveryService";
 
@@ -594,11 +594,6 @@ export const ThursdayPresentationModal: React.FC<ThursdayPresentationModalProps>
   const [isAutoPlaying, setIsAutoPlaying] = useState<boolean>(false);
   const [autoPlaySecondsLeft, setAutoPlaySecondsLeft] = useState<number>(15);
 
-  // Mascot Speech & Mood
-  const [dogSpeech, setDogSpeech] = useState<string>("");
-  const [dogMood, setDogMood] = useState<DogMascotMood>("speaking");
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-
   // Fullscreen & Notes
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [meetingNotes, setMeetingNotes] = useState<string>("");
@@ -633,10 +628,6 @@ export const ThursdayPresentationModal: React.FC<ThursdayPresentationModalProps>
       setMeetingSecondsLeft(20 * 60);
       setIsTimerRunning(true);
       setIsAutoPlaying(false);
-      setDogMood("speaking");
-      setDogSpeech(
-        "Woof! Welcome to our Thursday Executive Presentation! 🐾 Management is in the room. Who are we presenting today?"
-      );
     }
   }, [isOpen]);
 
@@ -1102,41 +1093,21 @@ export const ThursdayPresentationModal: React.FC<ThursdayPresentationModalProps>
   const handleAskOctoberClosures = () => {
     setStep("pipeline");
     setPipelineViewMode("october_closures");
-    setDogSpeech(
-      `🎯 Woof! Here is the October Closures report! ${selectedOwner} has ${octoberPipelineAnalysis.wonClosures.length} confirmed Won Closure (${formatINR(octoberPipelineAnalysis.wonValue)}) plus ${octoberPipelineAnalysis.activePipelineClosingInOct.length} active pipeline deals closing by Oct 31st worth ${formatINR(octoberPipelineAnalysis.pipelineValue)} (${formatINR(octoberPipelineAnalysis.pipelineWeighted)} weighted)! Total October potential is ${formatINR(octoberPipelineAnalysis.totalPotentialValue)}!`
-    );
-    setDogMood("celebrating");
-    if (soundEnabled) playProceduralBark("cheer");
   };
 
   const handleAskDeliveryInvoicing = () => {
     setStep("delivery");
     setDeliveryViewMode("projects");
-    setDogSpeech(
-      `🚚 Delivery Invoicing Status for ${selectedOwner}: Total Delivery Book is ${formatINR(totalDeliveryValue)}, Invoiced is ${formatINR(totalDeliveryInvoiced)}, Cash Collected is ${formatINR(totalDeliveryReceived)} bank-cleared, with ${formatINR(totalDeliveryPending)} pending realization!`
-    );
-    setDogMood("walking");
-    if (soundEnabled) playProceduralBark("bark");
   };
 
   const handleAskFutureInvoicing = () => {
     setStep("delivery");
     setDeliveryViewMode("future_invoicing");
-    setDogSpeech(
-      `🔮 Tail wagging! Future invoicing for the next 2 months is ${formatINR(futureInvoicingSchedule.next60DaysTotal)}! In November (M+1) we invoice ${formatINR(futureInvoicingSchedule.novemberTotal)} (${futureInvoicingSchedule.novemberItems.length} accounts), and in December (M+2) we invoice ${formatINR(futureInvoicingSchedule.decemberTotal)}! Combined 90-day cashflow realization is ${formatINR(futureInvoicingSchedule.next90DaysTotal)}!`
-    );
-    setDogMood("jumping");
-    if (soundEnabled) playProceduralBark("cheer");
   };
 
   const handleAskQ4Matrix = () => {
     setStep("delivery");
     setDeliveryViewMode("matrix");
-    setDogSpeech(
-      `⚡ Full Q4 Permutations & Combinations Matrix loaded! You can inspect every client account across October actuals, November M+1 invoicing, and December M+2 completions!`
-    );
-    setDogMood("speaking");
-    if (soundEnabled) playProceduralBark("dance");
   };
 
   // Format countdown mm:ss
@@ -1146,123 +1117,26 @@ export const ThursdayPresentationModal: React.FC<ThursdayPresentationModalProps>
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  // Dynamic Dog Mascot Dialogue updates when stage or step changes
+  // Confetti celebration when wrap up step is reached
   useEffect(() => {
-    if (step === "select_owner") {
-      setDogSpeech(
-        "Woof! Ready for our Thursday 20-minute meeting! 🐾 Higher management is present. Select which lead owner to review first!"
-      );
-      setDogMood("speaking");
-    } else if (step === "select_duration") {
-      setDogSpeech(
-        `Tail wagging! 🐶 We are reviewing ${selectedOwner}. For which time duration should I inspect the pipeline & delivery?`
-      );
-      setDogMood("walking");
-    } else if (step === "pipeline") {
-      if (pipelineViewMode === "october_closures") {
-        setDogSpeech(
-          `🎯 October Closures Run-Rate: ${octoberPipelineAnalysis.wonClosures.length} Won (${formatINR(octoberPipelineAnalysis.wonValue)}) + ${octoberPipelineAnalysis.activePipelineClosingInOct.length} Pipeline Deals (${formatINR(octoberPipelineAnalysis.pipelineValue)}). Total Potential: ${formatINR(octoberPipelineAnalysis.totalPotentialValue)}!`
-        );
-        setDogMood("celebrating");
-        return;
-      }
-      const count = currentStageLeads.length;
-      const formattedSum = formatINR(currentStageTotal);
-
-      if (currentStage === "interest") {
-        setDogSpeech(
-          `🐾 Stage 1: Initial Interest! ${selectedOwner} has ${count} target accounts exploring coaching, worth ${formattedSum}.`
-        );
-      } else if (currentStage === "proposal") {
-        setDogSpeech(
-          `📑 Stage 2: Proposals Out! Sniffing out ${count} proposals submitted (${formattedSum}). Key decision-makers reviewing our decks!`
-        );
-      } else if (currentStage === "discussion") {
-        setDogSpeech(
-          `🗣️ Stage 3: Active Discussions! ${count} accounts (${formattedSum}) in deep CXO stakeholder conversations.`
-        );
-      } else if (currentStage === "negotiation") {
-        setDogSpeech(
-          `🔥 Stage 4: Commercial Negotiation! Hot deals here! ${count} high-intent accounts worth ${formattedSum} with 75% weightage!`
-        );
-      } else if (currentStage === "closure") {
-        setDogSpeech(
-          `🏆 Stage 5: Won Deals & Closures! Woof woof! ${count} closed deals (${formattedSum}) signed off & ready for Delivery!`
-        );
-        if (soundEnabled) {
-          playProceduralBark("cheer");
-        }
-      } else if (currentStage === "closed_lost") {
-        setDogSpeech(
-          `💡 Stage 6: Learning & Review. Any closed-lost opportunities analyzed for feedback before we leap to Delivery.`
-        );
-      }
-      setDogMood(currentStage === "closure" ? "celebrating" : "speaking");
-    } else if (step === "delivery") {
-      if (deliveryViewMode === "future_invoicing") {
-        setDogSpeech(
-          `🔮 Next 2 Months Future Invoicing: Nov (M+1) = ${formatINR(futureInvoicingSchedule.novemberTotal)} | Dec (M+2) = ${formatINR(futureInvoicingSchedule.decemberTotal)}. 60-Day Runway: ${formatINR(futureInvoicingSchedule.next60DaysTotal)}!`
-        );
-        setDogMood("jumping");
-        return;
-      }
-      if (deliveryViewMode === "matrix") {
-        setDogSpeech(
-          `⚡ Q4 Cross-Functional Permutations Matrix: Cross-analyzing October closures, November invoicing, and December completion dates!`
-        );
-        setDogMood("speaking");
-        return;
-      }
-      const count = relevantDelivery.length;
-      const formattedTotal = formatINR(totalDeliveryValue);
-      const formattedInvoiced = formatINR(totalDeliveryInvoiced);
-      const formattedCollected = formatINR(totalDeliveryReceived);
-      const formattedPending = formatINR(totalDeliveryPending);
-      setDogSpeech(
-        `🚚 Leaped into Delivery Operations! ${selectedOwner} has ${count} accounts. Delivery Book: ${formattedTotal} | Invoiced: ${formattedInvoiced} | Cash Collected: ${formattedCollected} | Pending: ${formattedPending}!`
-      );
-      setDogMood("walking");
-    } else if (step === "wrap_up") {
-      setDogSpeech(
-        `🎉 20-Minute Review Complete! Outstanding presentation for ${selectedOwner}. The leadership scorecard is ready!`
-      );
-      setDogMood("celebrating");
+    if (step === "wrap_up") {
       confetti({
         particleCount: 80,
         spread: 90,
         origin: { y: 0.6 },
       });
     }
-  }, [
-    step,
-    selectedOwner,
-    activeStageIndex,
-    currentStage,
-    pipelineViewMode,
-    deliveryViewMode,
-    currentStageLeads.length,
-    currentStageTotal,
-    relevantDelivery.length,
-    totalDeliveryValue,
-    totalDeliveryInvoiced,
-    totalDeliveryReceived,
-    totalDeliveryPending,
-    octoberPipelineAnalysis,
-    futureInvoicingSchedule,
-    soundEnabled,
-  ]);
+  }, [step]);
 
   // Handle owner selection
   const handleSelectOwner = (ownerName: string) => {
     setSelectedOwner(ownerName);
-    if (soundEnabled) playProceduralBark("bark");
     setStep("select_duration");
   };
 
   // Handle duration selection
   const handleSelectDuration = (duration: TimeDurationKey) => {
     setSelectedDuration(duration);
-    if (soundEnabled) playProceduralBark("bark");
     setStep("pipeline");
     setPipelineViewMode("stages");
     setActiveStageIndex(0);
@@ -1274,13 +1148,11 @@ export const ThursdayPresentationModal: React.FC<ThursdayPresentationModalProps>
     if (activeStageIndex < ORDERED_STAGES.length - 1) {
       setActiveStageIndex((prev) => prev + 1);
       setAutoPlaySecondsLeft(15);
-      if (soundEnabled) playProceduralBark("bark");
     } else {
       // Transition to Delivery
       setStep("delivery");
       setDeliveryViewMode("projects");
       setActiveDeliveryIndex(0);
-      if (soundEnabled) playProceduralBark("cheer");
     }
   };
 
@@ -1288,7 +1160,6 @@ export const ThursdayPresentationModal: React.FC<ThursdayPresentationModalProps>
     if (activeStageIndex > 0) {
       setActiveStageIndex((prev) => prev - 1);
       setAutoPlaySecondsLeft(15);
-      if (soundEnabled) playProceduralBark("bark");
     }
   };
 
@@ -1344,8 +1215,8 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
         <div className="px-5 py-3.5 bg-gradient-to-r from-amber-600 via-orange-600 to-indigo-700 text-white flex items-center justify-between gap-3 shadow-md">
           {/* Left: Meeting Branding */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-xl shadow-inner">
-              🐾
+            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center shadow-inner">
+              <Presentation className="w-5 h-5 text-white" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
@@ -1420,16 +1291,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
               ))}
             </div>
 
-            {/* Sound Toggle */}
-            <button
-              type="button"
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-white"
-              title={soundEnabled ? "Mute Mascot" : "Unmute Mascot"}
-            >
-              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            </button>
-
             {/* Fullscreen Button */}
             <button
               type="button"
@@ -1474,7 +1335,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                     type="button"
                     onClick={() => {
                       setSelectedDuration(dur.id as TimeDurationKey);
-                      if (soundEnabled) playProceduralBark("bark");
                     }}
                     className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1 ${
                       selectedDuration === dur.id
@@ -1489,40 +1349,10 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
               </div>
             </div>
 
-            {/* Quick Mascot Entertain Actions */}
             <div className="flex items-center space-x-2">
               <span className="text-xs text-slate-500 dark:text-slate-400">
                 <strong className="text-slate-800 dark:text-slate-200">{selectedOwner}</strong>: {relevantLeads.length} deals in timeline
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setDogMood("jumping");
-                  if (soundEnabled) playProceduralBark("boing");
-                  setDogSpeech("🦘 Hop! Leaping high over revenue targets! Management loves the momentum!");
-                  setTimeout(() => setDogMood("speaking"), 1400);
-                }}
-                className="px-2 py-0.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-black border border-emerald-400/30 transition flex items-center space-x-1 cursor-pointer"
-                title="Make Monk Pup leap into the air!"
-              >
-                <span>🦘</span>
-                <span>Hop Dog!</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDogMood("dancing");
-                  if (soundEnabled) playProceduralBark("dance");
-                  setDogSpeech("🕺 Groovy Thursday review! Deals are closing, cash is flowing! Let's party!");
-                  confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
-                  setTimeout(() => setDogMood("speaking"), 3200);
-                }}
-                className="px-2 py-0.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-600 dark:text-pink-400 text-xs font-black border border-pink-400/30 transition flex items-center space-x-1 cursor-pointer"
-                title="Make Monk Pup dance!"
-              >
-                <span>🕺</span>
-                <span>Dance!</span>
-              </button>
             </div>
           </div>
         )}
@@ -1622,27 +1452,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* MONK PUP MASCOT BAR: Dynamic Speech & Cheer Station */}
-        {/* ========================================================= */}
-        <div className="p-4 sm:p-5 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-indigo-500/10 dark:from-amber-950/20 dark:via-orange-950/20 dark:to-indigo-950/20 border-b border-amber-300/40 dark:border-amber-700/40">
-          <DogMascotPresenter
-            speech={dogSpeech}
-            mood={dogMood}
-            soundEnabled={soundEnabled}
-            onToggleSound={() => setSoundEnabled(!soundEnabled)}
-            onTreatGiven={() => {
-              confetti({ particleCount: 30, spread: 60, origin: { y: 0.7 } });
-            }}
-            onJump={() => {
-              setDogSpeech("🦘 High hop! Reaching for ambitious revenue milestones! Woof!");
-            }}
-            onDance={() => {
-              setDogSpeech("🕺 Groovy Thursday review! Deals are closing, cash is flowing! Let's party!");
-              confetti({ particleCount: 40, spread: 70, origin: { y: 0.6 } });
-            }}
-          />
-        </div>
+
 
         {/* ========================================================= */}
         {/* MAIN BODY: STEP BY STEP PRESENTATION CONTENT */}
@@ -1661,7 +1471,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                   Which Lead Owner Are We Presenting Today?
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-lg mx-auto">
-                  Click a team member to start their interactive Thursday review. The dog will fetch all their pipeline deals and active delivery milestones.
+                  Click a team member to start their interactive Thursday review with all pipeline deals and active delivery milestones.
                 </p>
               </div>
 
@@ -1694,7 +1504,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                   <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
                     <span>{leads.length} Active Deals</span>
                     <span className="text-amber-600 dark:text-amber-400 flex items-center">
-                      Review All 🐾
+                      Review All
                     </span>
                   </div>
                 </button>
@@ -1772,7 +1582,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                   Select Time Duration for {selectedOwner}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                  Which period should the dog present to leadership? Most Thursday reviews focus on This Month.
+                  Which period would you like to present to leadership? Most Thursday reviews focus on This Month.
                 </p>
               </div>
 
@@ -1841,7 +1651,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
 
                       <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-amber-600 dark:text-amber-400">
                         <span>Ready to present</span>
-                        <span>Start Walkthrough 🐾 ➡️</span>
+                        <span>Start Walkthrough ➡️</span>
                       </div>
                     </button>
                   );
@@ -1930,7 +1740,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                   >
                     <span>
                       {activeStageIndex < ORDERED_STAGES.length - 1
-                        ? "Next Stage 🐾"
+                        ? "Next Stage"
                         : "Leap to Delivery 🚚"}
                     </span>
                     <ChevronRight className="w-4 h-4" />
@@ -1945,7 +1755,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                     type="button"
                     onClick={() => {
                       setPipelineViewMode("stages");
-                      if (soundEnabled) playProceduralBark("bark");
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
                       pipelineViewMode === "stages"
@@ -1953,7 +1762,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                         : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
                     }`}
                   >
-                    <span>🐾</span>
+                    <Layers className="w-3.5 h-3.5" />
                     <span>Stage-by-Stage Walkthrough</span>
                   </button>
 
@@ -1961,7 +1770,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                     type="button"
                     onClick={() => {
                       setPipelineViewMode("october_closures");
-                      if (soundEnabled) playProceduralBark("cheer");
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
                       pipelineViewMode === "october_closures"
@@ -2141,7 +1949,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                               onClick={() => {
                                 setStep("delivery");
                                 setDeliveryViewMode("projects");
-                                if (soundEnabled) playProceduralBark("bark");
                               }}
                               className="w-full py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-sm transition"
                             >
@@ -2246,7 +2053,7 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
               {/* VIEW 2: STAGE-BY-STAGE WALKTHROUGH (Default Ribbon & Active Stage) */}
               {pipelineViewMode === "stages" && (
                 <>
-                  {/* Stage Ribbon / Stepper with Dog Paw Tracking */}
+                  {/* Stage Ribbon / Stepper */}
                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                 {ORDERED_STAGES.map((stg, idx) => {
                   const info = STAGES[stg];
@@ -2260,7 +2067,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                       onClick={() => {
                         setActiveStageIndex(idx);
                         setAutoPlaySecondsLeft(15);
-                        if (soundEnabled) playProceduralBark("bark");
                       }}
                       className={`relative p-2.5 rounded-2xl border-2 text-left transition-all ${
                         isActive
@@ -2268,11 +2074,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                           : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 hover:border-slate-300"
                       }`}
                     >
-                      {isActive && (
-                        <span className="absolute -top-2 right-2 text-xs animate-bounce">
-                          🐾
-                        </span>
-                      )}
                       <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-0.5">
                         <span>{info.weightage}%</span>
                         <span
@@ -2324,21 +2125,21 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                 {/* Company Cards in Current Stage */}
                 {currentStageLeads.length === 0 ? (
                   <div className="py-12 text-center space-y-3">
-                    <div className="w-14 h-14 mx-auto rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center text-2xl">
-                      🐾
+                    <div className="w-14 h-14 mx-auto rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                      <Briefcase className="w-6 h-6 text-amber-500" />
                     </div>
                     <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">
                       No Deals Currently in {currentStageInfo.label}
                     </h4>
                     <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                      All paws on deck! {selectedOwner} has concentrated opportunities in the other active stages.
+                      {selectedOwner} has concentrated opportunities in the other active stages.
                     </p>
                     <button
                       type="button"
                       onClick={handleNextStage}
                       className="px-4 py-2 rounded-xl bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 transition"
                     >
-                      Proceed to Next Stage 🐾
+                      Proceed to Next Stage
                     </button>
                   </div>
                 ) : (
@@ -2505,7 +2306,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                     type="button"
                     onClick={() => {
                       setDeliveryViewMode("projects");
-                      if (soundEnabled) playProceduralBark("bark");
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
                       deliveryViewMode === "projects"
@@ -2524,7 +2324,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                     type="button"
                     onClick={() => {
                       setDeliveryViewMode("future_invoicing");
-                      if (soundEnabled) playProceduralBark("cheer");
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
                       deliveryViewMode === "future_invoicing"
@@ -2543,7 +2342,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                     type="button"
                     onClick={() => {
                       setDeliveryViewMode("matrix");
-                      if (soundEnabled) playProceduralBark("dance");
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
                       deliveryViewMode === "matrix"
@@ -2657,7 +2455,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                           type="button"
                           onClick={() => {
                             setFutureHorizon(hz.id as FutureInvoicingHorizon);
-                            if (soundEnabled) playProceduralBark("bark");
                           }}
                           className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1 ${
                             futureHorizon === hz.id
@@ -2784,7 +2581,6 @@ ${futureInvoicingSchedule.decemberItems.map((item) => `  - ${item.companyName}: 
                           type="button"
                           onClick={() => {
                             setMatrixFilter(mf.id as any);
-                            if (soundEnabled) playProceduralBark("bark");
                           }}
                           className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
                             matrixFilter === mf.id
