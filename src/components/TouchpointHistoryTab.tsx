@@ -305,7 +305,11 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     const set = new Set<string>();
     coldClients.forEach((c) => {
       if (c.owner && c.owner.trim()) {
-        set.add(getCanonicalOwnerName(c.owner.trim()));
+        const canonical = getCanonicalOwnerName(c.owner.trim());
+        const lower = canonical.toLowerCase();
+        if (!lower.includes("gaurav") && !lower.includes("preeti")) {
+          set.add(canonical);
+        }
       }
     });
     return Array.from(set).sort();
@@ -551,6 +555,10 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
     sortedFilteredLeads.forEach(({ client, latestDate, latestTp, allTouchpoints, tpCount }) => {
       const rawOwner = client.owner?.trim() || "Unassigned";
       const ownerName = getCanonicalOwnerName(rawOwner);
+      const lowerOwner = ownerName.toLowerCase();
+      if (lowerOwner.includes("gaurav") || lowerOwner.includes("preeti")) {
+        return;
+      }
 
       if (!map.has(ownerName)) {
         map.set(ownerName, {
@@ -987,11 +995,17 @@ export const TouchpointHistoryTab: React.FC<TouchpointHistoryTabProps> = ({
               className="w-full pl-3 pr-8 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer appearance-none"
             >
               <option value="all">👤 Owner: All Owners</option>
-              {owners.map((owner) => (
-                <option key={owner} value={owner}>
-                  {owner}
-                </option>
-              ))}
+              {owners
+                .filter(
+                  (owner) =>
+                    !owner.toLowerCase().includes("gaurav") &&
+                    !owner.toLowerCase().includes("preeti")
+                )
+                .map((owner) => (
+                  <option key={owner} value={owner}>
+                    {owner}
+                  </option>
+                ))}
             </select>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
