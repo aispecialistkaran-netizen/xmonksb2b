@@ -483,41 +483,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Quick Actions Strip */}
           {!isAccounts && !isDeliveryOnly && (
             <div className="space-y-1.5">
-              {/* Thursday 20-Min Executive Presentation Mode Button */}
-              {onOpenPresentation && (
-                <button
-                  type="button"
-                  data-action="presentation-mode"
-                  onClick={() => {
-                    onOpenPresentation();
-                    setIsMobileOpen(false);
-                  }}
-                  className={`w-full flex items-center ${
-                    isCollapsed ? "justify-center px-2 py-2.5" : "justify-between px-3 py-2.5"
-                  } rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-black text-xs shadow-md shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-95 border border-amber-300/40 relative group cursor-pointer`}
-                  title="Presentation – Thursday 20-min Leadership Review with Monk Pup"
-                >
-                  <div className="flex items-center space-x-2.5 min-w-0">
-                    <div className="w-5 h-5 rounded-lg bg-white/20 backdrop-blur-xs flex items-center justify-center text-xs shrink-0 shadow-inner">
-                      🐾
-                    </div>
-                    {(!isCollapsed || isMobileOpen) && (
-                      <div className="text-left leading-tight truncate">
-                        <span className="block font-black text-xs tracking-tight">Presentation</span>
-                        <span className="text-[9px] text-amber-100 font-medium block truncate">
-                          Thursday Review (20m)
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  {(!isCollapsed || isMobileOpen) && (
-                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-black/25 text-amber-200 border border-white/20 uppercase tracking-wider shrink-0">
-                      Live
-                    </span>
-                  )}
-                </button>
-              )}
-
               <SpringButton
                 variant="primary"
                 onClick={() => {
