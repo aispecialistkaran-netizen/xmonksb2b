@@ -97,6 +97,7 @@ import { DeliveryTimelineView } from "@/components/DeliveryTimelineView";
 import { ClientSignoffModal } from "@/components/ClientSignoffModal";
 import { ClientShareablePortalModal } from "@/components/ClientShareablePortalModal";
 import { DeliveryAiImportModal, ExtractedDeliveryData } from "@/components/DeliveryAiImportModal";
+import { DeliveryFinancialRealizationTable } from "@/components/DeliveryFinancialRealizationTable";
 import {
   calculateAgingReceivables,
   calculateDeliveryHealth,
@@ -128,8 +129,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
     "tenure" | "pipeline_data" | "coaches" | "signoff"
   >("tenure");
 
-  // Delivery View Mode Switcher: Table View vs Interactive Gantt Timeline View
-  const [deliveryViewMode, setDeliveryViewMode] = useState<"table" | "timeline">("table");
+  // Delivery View Mode Switcher: Financial Realization Table vs Operations Table vs Interactive Gantt Timeline View
+  const [deliveryViewMode, setDeliveryViewMode] = useState<"financial" | "table" | "timeline">("financial");
 
   // Contract Sub-View Switcher (when tenure is contract)
   const [contractSubView, setContractSubView] = useState<"all" | "milestones" | "terms">("all");
@@ -143,8 +144,8 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
 
   // Executive Header Analytics Controls
   const [headerAnalyticsTab, setHeaderAnalyticsTab] = useState<
-    "owner_matrix" | "month_wise" | "payment_insights" | "risk_radar"
-  >("owner_matrix");
+    "realization_report" | "owner_matrix" | "month_wise" | "payment_insights" | "risk_radar"
+  >("realization_report");
   const [isAnalyticsExpanded, setIsAnalyticsExpanded] = useState<boolean>(true);
 
   // Modals & Drawers
@@ -1489,14 +1490,33 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               )}
 
               {/* Tab Selector Buttons */}
-              <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700 text-xs font-bold">
+              <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700 text-xs font-bold overflow-x-auto scrollbar-thin">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeaderAnalyticsTab("realization_report");
+                    setIsAnalyticsExpanded(true);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer whitespace-nowrap ${
+                    headerAnalyticsTab === "realization_report" && isAnalyticsExpanded
+                      ? "bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm font-black"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <Receipt className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Realization Report</span>
+                  <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold">
+                    {recordsForAnalytics.length}
+                  </span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
                     setHeaderAnalyticsTab("owner_matrix");
                     setIsAnalyticsExpanded(true);
                   }}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer whitespace-nowrap ${
                     headerAnalyticsTab === "owner_matrix" && isAnalyticsExpanded
                       ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm font-black"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -1610,6 +1630,22 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           {/* Collapsible Content Panels */}
           {isAnalyticsExpanded && (
             <div className="pt-2">
+              {/* TAB 0: FINANCIAL REALIZATION REPORT TABLE */}
+              {headerAnalyticsTab === "realization_report" && (
+                <div className="space-y-3">
+                  <DeliveryFinancialRealizationTable
+                    records={recordsForAnalytics}
+                    onSelectRecord={handleSelectRecord}
+                    title={
+                      selectedMonthFilter !== "all"
+                        ? `DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE (${selectedMonthFilter.toUpperCase()})`
+                        : "DELIVERY ACCOUNTS & FINANCIAL REALIZATION TABLE"
+                    }
+                    activeRecordId={selectedRecordId}
+                  />
+                </div>
+              )}
+
               {/* TAB 1: LEAD OWNER PERFORMANCE MATRIX (TABULAR DATA) */}
               {headerAnalyticsTab === "owner_matrix" && (
                 <div className="space-y-3">
@@ -4383,8 +4419,21 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
               <option value="on_hold">On Hold</option>
             </select>
 
-            {/* View Mode Switcher: Table vs Gantt Roadmap */}
+            {/* View Mode Switcher: Financial Realization Table vs Operations Table vs Gantt Roadmap */}
             <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setDeliveryViewMode("financial")}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  deliveryViewMode === "financial"
+                    ? "bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title="Delivery Accounts & Financial Realization Table with interactive milestone tranches"
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>Realization Table</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setDeliveryViewMode("table")}
@@ -4393,9 +4442,10 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                     ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
+                title="Detailed Operations & Delivery Lead Table"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Table</span>
+                <span>Operations Table</span>
               </button>
               <button
                 type="button"
@@ -4405,6 +4455,7 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
                     ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
+                title="Interactive Gantt Timeline Roadmap"
               >
                 <Calendar className="w-3.5 h-3.5" />
                 <span>Roadmap</span>
@@ -4417,6 +4468,12 @@ export const DeliveryTab: React.FC<DeliveryTabProps> = ({
           <DeliveryTimelineView
             records={filteredRecords}
             onSelectRecord={handleSelectRecord}
+          />
+        ) : deliveryViewMode === "financial" ? (
+          <DeliveryFinancialRealizationTable
+            records={filteredRecords}
+            onSelectRecord={handleSelectRecord}
+            activeRecordId={selectedRecordId}
           />
         ) : filteredRecords.length === 0 ? (
           <div className="py-12 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
