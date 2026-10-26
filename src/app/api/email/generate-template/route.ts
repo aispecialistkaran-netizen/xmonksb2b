@@ -37,6 +37,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const isAmit =
+      !senderName ||
+      senderName.toLowerCase().includes("amit") ||
+      senderName.toLowerCase().includes("shelly");
+
+    const amitSignatureBanner = `<!-- Amit's Verified Executive Signature Banner -->
+<div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 24px;">
+  <a href="https://wa.me/919711266420?text=Hi%20Amit%2C%20let%27s%20connect%20for%20Executive%20Coaching" target="_blank" style="display: block; text-decoration: none;">
+    <img src="/amit-signature.png" alt="Amit Shelly - Senior Business Lead Enterprise xMonks" style="max-width: 520px; width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid #fed7aa; box-shadow: 0 2px 6px rgba(0,0,0,0.04);" />
+  </a>
+  <table style="width: 100%; margin-top: 12px; font-size: 12.5px; color: #475569;">
+    <tr>
+      <td style="vertical-align: middle;">
+        <span style="font-weight: 700; color: #0f172a;">Amit Shelly</span> • Senior Business Lead – Enterprise
+      </td>
+      <td style="vertical-align: middle; text-align: right;">
+        <a href="tel:+919711266420" style="color: #F15A24; text-decoration: none; font-weight: 700; margin-right: 12px;">📞 +91 9711266420</a>
+        <a href="mailto:amit@xmonks.com" style="color: #233F4D; text-decoration: none; font-weight: 700;">✉️ amit@xmonks.com</a>
+      </td>
+    </tr>
+  </table>
+</div>`;
+
     const systemPrompt = `You are an elite B2B Enterprise Copywriter and Email Template Designer for xMonks (a premier corporate leadership, executive coaching, and L&D transformation partner).
 
 Your task is to take the user's business context, goal, or rough email draft and transform it into a stunning, responsive, high-converting HTML email.
@@ -51,7 +74,12 @@ Key Requirements:
    - Personalization: Naturally incorporate the recipient details: ${contactName ? `Recipient: ${contactName}` : ""}${companyName ? `, Company: ${companyName}` : ""}${designation ? `, Role: ${designation}` : ""}${industry ? `, Industry: ${industry}` : ""}. You may use actual values or CRM tags {{contactName}}, {{companyName}}, {{designation}}, {{industry}}.
    - Attached Reference Files: If the user has attached reference files or collateral, naturally refer to them in the copy (e.g. "I've attached our [document name] for your review") so the recipient knows relevant material is attached.
    - Call To Action (CTA): Prominent, beautifully styled CTA button with high contrast, padding (14px 28px), border-radius: 8px, and hover styling (e.g. Schedule Discovery Call, Explore Leadership Roadmap).
-   - Signature: Professional closing block with ${senderName || "{{senderName}}"} and "xMonks Leadership & Transformation".
+   - Signature: ${
+     isAmit
+       ? `For Amit Shelly, you MUST include his official verified executive signature image block with img src="/amit-signature.png" and direct links:
+${amitSignatureBanner}`
+       : `Professional closing block with ${senderName || "{{senderName}}"} and "xMonks Leadership & Transformation".`
+   }
    - Footer: Sleek, non-intrusive footer with company info and confidentiality note.
 3. OUTPUT FORMAT:
    You MUST respond ONLY with a valid JSON object. Do not include markdown code block backticks outside the JSON. Format:
@@ -153,6 +181,25 @@ Generate the JSON response with the email subject and full HTML email.`;
       cleanedJson = cleanedJson.replace(/^```\s*/, "").replace(/\s*```$/, "");
     }
 
+    const sanitizeAndEnsureSignature = (rawHtml: string): string => {
+      let content = rawHtml || "";
+      if (isAmit && !content.includes("amit-signature.png") && !content.includes("signature-amit")) {
+        const textSigRegex =
+          /(?:<p[^>]*>\s*Warm regards,?\s*<\/p>\s*)?<p[^>]*>\s*(?:Warm regards,?\s*<br\s*\/?>\s*)?Amit(?:\s+Shelly)?\s*<\/p>\s*(?:<p[^>]*>\s*xMonks(?:\s+Leadership\s*&\s*Transformation)?\s*<\/p>)?/gi;
+        if (textSigRegex.test(content)) {
+          content = content.replace(textSigRegex, amitSignatureBanner);
+        } else if (/<p[^>]*>Warm regards,<\/p>[\s\S]*?Amit/i.test(content)) {
+          content = content.replace(
+            /<p[^>]*>Warm regards,<\/p>[\s\S]*?(?:xMonks Leadership & Transformation<\/p>|Amit<\/p>)/gi,
+            amitSignatureBanner
+          );
+        } else if (/<p>Best regards,<br\/>\s*xMonks Sales Team<\/p>/gi.test(content)) {
+          content = content.replace(/<p>Best regards,<br\/>\s*xMonks Sales Team<\/p>/gi, amitSignatureBanner);
+        }
+      }
+      return content;
+    };
+
     try {
       const parsed = JSON.parse(cleanedJson);
       return NextResponse.json({
@@ -160,7 +207,7 @@ Generate the JSON response with the email subject and full HTML email.`;
         subject: parsed.subject || "Important update from xMonks",
         templateName: parsed.templateName || "AI Generated Template",
         summary: parsed.summary || "Custom tailored email template",
-        htmlContent: parsed.htmlContent || "",
+        htmlContent: sanitizeAndEnsureSignature(parsed.htmlContent || ""),
       });
     } catch {
       // Fallback if not pure JSON
@@ -169,7 +216,7 @@ Generate the JSON response with the email subject and full HTML email.`;
         subject: "Exclusive Leadership Collaboration with xMonks",
         templateName: "AI Generated Template",
         summary: "Custom generated template based on your prompt",
-        htmlContent: rawOutput,
+        htmlContent: sanitizeAndEnsureSignature(rawOutput),
       });
     }
   } catch (err: unknown) {

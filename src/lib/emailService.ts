@@ -1314,6 +1314,41 @@ export function personalizeEmailTemplate(
       .replace(/\{\{\s*senderEmail\s*\}\}/gi, "amit@xmonks.com")
       .replace(/\{\{\s*senderRole\s*\}\}/gi, "Senior Business Lead – Enterprise")
       .replace(/\{\{\s*senderPhone\s*\}\}/gi, "+91 9711266420");
+
+    // Upgrade plain text signature to Amit's official executive signature banner if not already present
+    if (!result.includes("amit-signature.png") && !result.includes("signature-amit")) {
+      const amitSignatureHtml = `<!-- Amit's Verified Executive Signature Banner -->
+<div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 24px;">
+  <a href="https://wa.me/919711266420?text=Hi%20Amit%2C%20let%27s%20connect%20for%20Executive%20Coaching" target="_blank" style="display: block; text-decoration: none;">
+    <img src="/amit-signature.png" alt="Amit Shelly - Senior Business Lead Enterprise xMonks" style="max-width: 520px; width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid #fed7aa; box-shadow: 0 2px 6px rgba(0,0,0,0.04);" />
+  </a>
+  <table style="width: 100%; margin-top: 12px; font-size: 12.5px; color: #475569;">
+    <tr>
+      <td style="vertical-align: middle;">
+        <span style="font-weight: 700; color: #0f172a;">Amit Shelly</span> • Senior Business Lead – Enterprise
+      </td>
+      <td style="vertical-align: middle; text-align: right;">
+        <a href="tel:+919711266420" style="color: #F15A24; text-decoration: none; font-weight: 700; margin-right: 12px;">📞 +91 9711266420</a>
+        <a href="mailto:amit@xmonks.com" style="color: #233F4D; text-decoration: none; font-weight: 700;">✉️ amit@xmonks.com</a>
+      </td>
+    </tr>
+  </table>
+</div>`;
+
+      const textSigRegex =
+        /(?:<p[^>]*>\s*Warm regards,?\s*<\/p>\s*)?<p[^>]*>\s*(?:Warm regards,?\s*<br\s*\/?>\s*)?Amit(?:\s+Shelly)?\s*<\/p>\s*(?:<p[^>]*>\s*xMonks(?:\s+Leadership\s*&\s*Transformation)?\s*<\/p>)?/gi;
+
+      if (textSigRegex.test(result)) {
+        result = result.replace(textSigRegex, amitSignatureHtml);
+      } else if (/<p[^>]*>Warm regards,<\/p>[\s\S]*?Amit/i.test(result)) {
+        result = result.replace(
+          /<p[^>]*>Warm regards,<\/p>[\s\S]*?(?:xMonks Leadership & Transformation<\/p>|Amit<\/p>)/gi,
+          amitSignatureHtml
+        );
+      } else if (/<p>Best regards,<br\/>\s*xMonks Sales Team<\/p>/gi.test(result)) {
+        result = result.replace(/<p>Best regards,<br\/>\s*xMonks Sales Team<\/p>/gi, amitSignatureHtml);
+      }
+    }
   }
 
   // Also replace any legacy "Ruby Dayal" sign-off if another user is sending
